@@ -34,6 +34,8 @@ end
 
 const S3_CHUNK_SIZE = 25 * 1024 * 1024 # 25 MB
 
+include("sync_compat.jl")
+
 function upload_rr_trace(trace_directory)
     @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
     rr() do rr
@@ -81,20 +83,22 @@ function upload_rr_trace(trace_directory)
         upload = s3_begin_multipart_upload(aws, TRACE_BUCKET, s3creds["UPLOAD_PATH"])
         tags = Vector{String}()
         i = 1
-        @sync begin try
+        @Base.Experimental.sync begin
             while isopen(proc)
                 buf = Vector{UInt8}(undef, S3_CHUNK_SIZE)
                 n = readbytes!(proc, buf)
                 n < S3_CHUNK_SIZE && resize!(buf, n)
                 let partno = i, buf=buf
                     @async begin
-                        push!(tags, s3_upload_part(aws, upload, partno, buf))
+                        try
+                            push!(tags, s3_upload_part(aws, upload, partno, buf))
+                        catch e
+                            close(proc)
+                            rethrow(e)
+                        end
                     end
                 end
                 i += 1
-            end
-            catch e
-                Base.showerror(stderr, e)
             end
         end
         s3_complete_multipart_upload(aws, upload, tags)
