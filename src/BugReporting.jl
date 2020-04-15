@@ -4,6 +4,7 @@ using rr_jll
 using HTTP, JSON
 using AWSCore, AWSS3
 using Tar
+using Pkg
 
 const WSS_ENDPOINT = "wss://53ly7yebjg.execute-api.us-east-1.amazonaws.com/test"
 const GITHUB_APP_ID = "Iv1.c29a629771fe63c4&state=Kwq4cf39oAMCJqg="
@@ -15,8 +16,13 @@ function check_rr_available()
     end
 end
 
+function do_pack(rr, trace_directory)
+    @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
+    run(`$rr pack $trace_directory`)
+end
+
 function make_interactive_report(report_type, ARGS=[])
-    if report_type == "rrbug"
+    if report_type == "justrr"
         check_rr_available()
         rr() do rr
             run(`$rr record $(Base.julia_cmd()) $ARGS`)
@@ -24,9 +30,17 @@ function make_interactive_report(report_type, ARGS=[])
         return
     elseif report_type == "rr"
         check_rr_available()
-        rr() do rr
-            run(`$rr record $(Base.julia_cmd()) $ARGS`)
+        artifact_hash = Pkg.create_artifact() do trace_directory
+            rr() do rr
+                # Record
+                new_env = copy(ENV)
+                new_env["_RR_TRACE_DIR"] = trace_directory
+                run(setenv(`$rr record $(Base.julia_cmd()) $ARGS`, new_env))
+                # Pack
+                do_pack(rr, "$trace_directory/latest-trace")
+            end
         end
+        upload_rr_trace(Pkg.artifact_path(artifact_hash); pack=false)
         return
     end
     error("Unknown report type")
@@ -36,10 +50,11 @@ const S3_CHUNK_SIZE = 25 * 1024 * 1024 # 25 MB
 
 include("sync_compat.jl")
 
-function upload_rr_trace(trace_directory)
-    @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
-    rr() do rr
-        run(`$rr pack $trace_directory`)
+function upload_rr_trace(trace_directory; pack=true)
+    if pack
+        rr() do rr
+            do_pack(rr, trace_directory)
+        end
     end
 
     c = Channel()
@@ -53,6 +68,7 @@ function upload_rr_trace(trace_directory)
     end
     bind(c, t)
     connectionId = take!(c)
+    println()
     println("""
     ### IMPORTANT =============================================================
     You are about to upload a trace directory to a publicly accessible location.
@@ -68,6 +84,7 @@ function upload_rr_trace(trace_directory)
     println("\thttps://github.com/login/oauth/authorize?client_id=$GITHUB_APP_ID&state=$connectionId")
     s3creds = take!(c)
 
+    println()
     @info "Uploading Trace directory"
 
     creds = AWSCore.AWSCredentials(
