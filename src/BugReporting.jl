@@ -86,7 +86,7 @@ function upload_rr_trace(trace_directory; pack=true)
     ### =======================================================================
     """)
     println("To upload a trace, please authenticate, by visiting:\n")
-    println("\thttps://github.com/login/oauth/authorize?client_id=$GITHUB_APP_ID&state=$connectionId")
+    println("\thttps://github.com/login/oauth/authorize?client_id=$GITHUB_APP_ID&state=$(HTTP.escapeuri(connectionId))")
     s3creds = take!(c)
 
     println()
