@@ -16,36 +16,90 @@ function check_rr_available()
     end
 end
 
-function do_pack(rr, trace_directory)
-    @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
-    run(`$rr pack $trace_directory`)
+function normalize_inner_trace(trace_directory)
+    # What _RR_TRACE_DIR calls a "trace directory" is not what `rr pack` calls a "trace directory"
+    # This function allows us to normalize to the inner "latest-trace" directory, if necessary.
+    latest_symlink = joinpath(trace_directory, "latest-trace")
+    if !isfile(joinpath(trace_directory, "version")) && islink(latest_symlink)
+        return realpath(latest_symlink)
+    end
+    return trace_directory
 end
 
-function rr_record(rr)
-    record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
-    `$rr record $(record_flags)`
+function rr_pack(trace_directory)
+    check_rr_available()
+    
+    trace_directory = normalize_inner_trace(trace_directory)
+    rr() do rr_path
+        run(`$rr_path pack $(trace_directory)`)
+    end
 end
+
+function is_packed(trace_directory)
+    # What _RR_TRACE_DIR calls a "trace directory" is not what `rr pack` calls a "trace directory"
+    trace_directory = normalize_inner_trace(trace_directory)
+    return !isempty(filter(f -> startswith(f, "mmap_pack"), readdir(trace_directory)))
+end
+
+function rr_record(args...; trace_dir=nothing)
+    check_rr_available()
+
+    record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
+    rr() do rr_path
+        new_env = copy(ENV)
+        if trace_dir !== nothing
+            new_env["_RR_TRACE_DIR"] = trace_dir
+        end
+        # Intersperse all given arguments with spaces, then splat:
+        rr_cmd = `$(rr_path) record $(record_flags)`
+        for arg in args
+            rr_cmd = `$(rr_cmd) $(arg)`
+        end
+        run(setenv(rr_cmd, new_env))
+    end
+end
+
+function download_rr_trace(trace_url; verbose=true)
+    Pkg.PlatformEngines.probe_platform_engines!()
+    artifact_hash = Pkg.create_artifact() do dir
+        mktempdir() do dl_dir
+            # Download into temporary directory, unpack into artifact directory
+            Pkg.PlatformEngines.download(trace_url, joinpath(dl_dir, "trace.tar.gz"); verbose=verbose)
+            Pkg.PlatformEngines.unpack(joinpath(dl_dir, "trace.tar.gz"), dir)
+        end
+    end
+    return Pkg.artifact_path(artifact_hash)
+end
+
+function rr_replay(trace_url)
+    if startswith(trace_url, "s3://")
+        trace_url = string("https://s3.amazonaws.com/julialang-dumps/", trace_url[6:end])
+    end
+    if startswith(trace_url, "https://")
+        trace_url = download_rr_trace(trace_url)
+    end
+
+    if !isdir(trace_url)
+        error("Invalid trace location: $(trace_url)")
+    end
+
+    rr() do rr_path
+        run(`$(rr_path) replay $(normalize_inner_trace(trace_url))`)
+    end
+end
+
 
 function make_interactive_report(report_type, ARGS=[])
     if report_type == "justrr"
-        check_rr_available()
-        rr() do rr
-            run(`$(rr_record(rr)) $(Base.julia_cmd()) $ARGS`)
-        end
+        rr_record(Base.julia_cmd(), ARGS)
         return
     elseif report_type == "rr"
-        check_rr_available()
-        artifact_hash = Pkg.create_artifact() do trace_directory
-            rr() do rr
-                # Record
-                new_env = copy(ENV)
-                new_env["_RR_TRACE_DIR"] = trace_directory
-                run(setenv(`$(rr_record(rr)) $(Base.julia_cmd()) $ARGS`, new_env))
-                # Pack
-                do_pack(rr, "$trace_directory/latest-trace")
-            end
+        artifact_hash = Pkg.create_artifact() do trace_dir
+            rr_record(Base.julia_cmd(), ARGS; trace_dir=trace_dir)
+            @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
+            rr_pack(trace_dir)
         end
-        upload_rr_trace(Pkg.artifact_path(artifact_hash); pack=false)
+        upload_rr_trace(Pkg.artifact_path(artifact_hash))
         return
     end
     error("Unknown report type")
@@ -55,11 +109,11 @@ const S3_CHUNK_SIZE = 25 * 1024 * 1024 # 25 MB
 
 include("sync_compat.jl")
 
-function upload_rr_trace(trace_directory; pack=true)
-    if pack
-        rr() do rr
-            do_pack(rr, trace_directory)
-        end
+function upload_rr_trace(trace_directory)
+    # Auto-pack this trace directory if it hasn't already been:
+    if !is_packed(trace_directory)
+        @info("Automatically calling `rr_pack()` on $(trace_directory) before upload...")
+        rr_pack(trace_directory)
     end
 
     c = Channel()
@@ -134,7 +188,7 @@ function upload_rr_trace(trace_directory; pack=true)
     close(proc.in)
 
     wait(t)
-    println("Uploaded to s3://$TRACE_BUCKET/$(s3creds["UPLOAD_PATH"])")
+    println("Uploaded to https://s3.amazonaws.com/$TRACE_BUCKET/$(s3creds["UPLOAD_PATH"])")
 end
 
 end # module
