@@ -22,7 +22,7 @@ function do_pack(rr, trace_directory)
 end
 
 function rr_record(rr)
-    record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ')
+    record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
     `$rr record $(record_flags)`
 end
 
