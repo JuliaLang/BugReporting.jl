@@ -109,7 +109,7 @@ func vendor(req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, 
 	os.Unsetenv("AWS_SESSION_TOKEN")
 
 	currentTime := time.Now()
-	fname := fmt.Sprintf("reports/%s-%s.tar.gz", currentTime.Format("2006-01-02T15:04:05"), user.GetLogin())
+	fname := fmt.Sprintf("reports/%s-%s.tar.gz", currentTime.Format("2006-01-02T15-04-05"), user.GetLogin())
 
 	awsSession := session.New()
 	svc := sts.New(awsSession)
