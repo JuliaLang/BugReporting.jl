@@ -21,11 +21,16 @@ function do_pack(rr, trace_directory)
     run(`$rr pack $trace_directory`)
 end
 
+function rr_record(rr)
+    record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ')
+    `$rr record $(record_flags)`
+end
+
 function make_interactive_report(report_type, ARGS=[])
     if report_type == "justrr"
         check_rr_available()
         rr() do rr
-            run(`$rr record $(Base.julia_cmd()) $ARGS`)
+            run(`$(rr_record(rr)) $(Base.julia_cmd()) $ARGS`)
         end
         return
     elseif report_type == "rr"
@@ -35,7 +40,7 @@ function make_interactive_report(report_type, ARGS=[])
                 # Record
                 new_env = copy(ENV)
                 new_env["_RR_TRACE_DIR"] = trace_directory
-                run(setenv(`$rr record $(Base.julia_cmd()) $ARGS`, new_env))
+                run(setenv(`$(rr_record(rr)) $(Base.julia_cmd()) $ARGS`, new_env))
                 # Pack
                 do_pack(rr, "$trace_directory/latest-trace")
             end
