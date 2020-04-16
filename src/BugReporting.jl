@@ -7,7 +7,7 @@ using Tar
 using Pkg
 
 const WSS_ENDPOINT = "wss://53ly7yebjg.execute-api.us-east-1.amazonaws.com/test"
-const GITHUB_APP_ID = "Iv1.c29a629771fe63c4&state=Kwq4cf39oAMCJqg="
+const GITHUB_APP_ID = "Iv1.c29a629771fe63c4"
 const TRACE_BUCKET = "julialang-dumps"
 
 function check_rr_available()
