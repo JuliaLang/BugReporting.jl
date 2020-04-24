@@ -55,7 +55,7 @@ function rr_record(args...; trace_dir=nothing)
         for arg in args
             rr_cmd = `$(rr_cmd) $(arg)`
         end
-        run(setenv(rr_cmd, new_env))
+        run(ignorestatus(setenv(rr_cmd, new_env)))
     end
 end
 
