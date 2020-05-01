@@ -1,6 +1,7 @@
 module BugReporting
 
 using rr_jll
+using Zstd_jll
 using HTTP, JSON
 using AWSCore, AWSS3
 using Tar
@@ -28,7 +29,7 @@ end
 
 function rr_pack(trace_directory)
     check_rr_available()
-    
+
     trace_directory = normalize_inner_trace(trace_directory)
     rr() do rr_path
         run(`$rr_path pack $(trace_directory)`)
@@ -153,7 +154,9 @@ function upload_rr_trace(trace_directory)
     aws = AWSCore.aws_config(creds = creds, region="us-east-1")
 
     # Tar it up
-    proc = open(`gzip -`, "r+")
+    proc = zstdmt() do zstdp
+        open(`$zstdp -`, "r+")
+    end
 
     t = @async begin try
         upload = s3_begin_multipart_upload(aws, TRACE_BUCKET, s3creds["UPLOAD_PATH"])
