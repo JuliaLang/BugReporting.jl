@@ -76,8 +76,12 @@ function download_rr_trace(trace_url; verbose=true)
     artifact_hash = Pkg.create_artifact() do dir
         mktempdir() do dl_dir
             # Download into temporary directory, unpack into artifact directory
-            Pkg.PlatformEngines.download(trace_url, joinpath(dl_dir, "trace.tar.gz"); verbose=verbose)
-            Pkg.PlatformEngines.unpack(joinpath(dl_dir, "trace.tar.gz"), dir)
+            local_path = joinpath(dl_dir, "trace.tar.zst")
+            Pkg.PlatformEngines.download(trace_url, local_path; verbose=verbose)
+            proc = zstdmt() do zstdp
+                open(`$zstdp --stdout -d $local_path`, "r+")
+            end
+            Tar.extract(proc, dir)
         end
     end
     return Pkg.artifact_path(artifact_hash)
