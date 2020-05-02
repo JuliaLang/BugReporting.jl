@@ -109,12 +109,12 @@ func vendor(req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, 
 	os.Unsetenv("AWS_SESSION_TOKEN")
 
 	currentTime := time.Now()
-	fname := fmt.Sprintf("reports/%s-%s.tar.zstd", currentTime.Format("2006-01-02T15-04-05"), user.GetLogin())
+	fname := fmt.Sprintf("reports/%s-%s.tar.zst", currentTime.Format("2006-01-02T15-04-05"), user.GetLogin())
 
 	awsSession := session.New()
 	svc := sts.New(awsSession)
 	tokenInput := &sts.GetFederationTokenInput{
-		DurationSeconds: aws.Int64(60*60),
+		DurationSeconds: aws.Int64(60 * 60),
 	}
 	tokenInput.Name = aws.String(user.GetLogin())
 	PolicyArns := []string{"arn:aws:iam::873569884612:policy/julialang-dumps-upload"}
