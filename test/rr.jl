@@ -38,10 +38,10 @@ using BugReporting, Test, Pkg
         # Test that we get something put into the temp trace directory
         @test islink(joinpath(temp_trace_dir, "latest-trace"))
 
-        # Test that we can pack the trace directory
-        @test !BugReporting.is_packed(temp_trace_dir)
+        # Test that we can pack the trace directory, and that it generates `mmap_pack` files
         BugReporting.rr_pack(temp_trace_dir)
-        @test BugReporting.is_packed(temp_trace_dir)
+        trace_files = readdir(joinpath(temp_trace_dir,"latest-trace"))
+        @test !isempty(filter(f -> startswith(f, "mmap_pack_"), trace_files))
 
         # Test that we can replay that trace: (just send in `continue` immediately to let it run)
         new_stdout_rd, new_stdout_wr = Base.redirect_stdout()
@@ -59,9 +59,8 @@ using BugReporting, Test, Pkg
         rr_stdout = String(read(new_stdout_rd))
         rr_stderr = String(read(new_stderr_rd))
 
-        # Test that Julia spat out what we expect, and there there was
-        # a LOT of stuff on `rr_stderr`.  :)
+        # Test that Julia spat out what we expect, still.
         @test occursin(msg, rr_stdout)
-        @test !isempty(rr_stderr)
+        @test isempty(rr_stderr)
     end
 end

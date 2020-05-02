@@ -17,7 +17,22 @@ function check_rr_available()
     end
 end
 
-function normalize_inner_trace(trace_directory)
+function collect_inner_traces(trace_directory)
+    # If this is already a trace directory, return just it
+    if isfile(joinpath(trace_directory, "version"))
+        return [trace_directory]
+    end
+    # If this is a directory containing traces, return those
+    traces = String[]
+    for f in readdir(trace_directory, join=true)
+        if isfile(joinpath(f, "version"))
+            push!(traces, f)
+        end
+    end
+    return unique(realpath.(traces))
+end
+
+function find_latest_trace(trace_directory)
     # What _RR_TRACE_DIR calls a "trace directory" is not what `rr pack` calls a "trace directory"
     # This function allows us to normalize to the inner "latest-trace" directory, if necessary.
     latest_symlink = joinpath(trace_directory, "latest-trace")
@@ -29,17 +44,13 @@ end
 
 function rr_pack(trace_directory)
     check_rr_available()
-
-    trace_directory = normalize_inner_trace(trace_directory)
+    
     rr() do rr_path
-        run(`$rr_path pack $(trace_directory)`)
+        for dir in collect_inner_traces(trace_directory)
+            @debug("rr pack'ing $(dir)")
+            run(`$rr_path pack $(dir)`)
+        end
     end
-end
-
-function is_packed(trace_directory)
-    # What _RR_TRACE_DIR calls a "trace directory" is not what `rr pack` calls a "trace directory"
-    trace_directory = normalize_inner_trace(trace_directory)
-    return !isempty(filter(f -> startswith(f, "mmap_pack"), readdir(trace_directory)))
 end
 
 function rr_record(args...; trace_dir=nothing)
@@ -85,7 +96,7 @@ function rr_replay(trace_url)
     end
 
     rr() do rr_path
-        run(`$(rr_path) replay $(normalize_inner_trace(trace_url))`)
+        run(`$(rr_path) replay $(find_latest_trace(trace_url))`)
     end
 end
 
@@ -112,10 +123,7 @@ include("sync_compat.jl")
 
 function upload_rr_trace(trace_directory)
     # Auto-pack this trace directory if it hasn't already been:
-    if !is_packed(trace_directory)
-        @info("Automatically calling `rr_pack()` on $(trace_directory) before upload...")
-        rr_pack(trace_directory)
-    end
+    rr_pack(trace_directory)
 
     c = Channel()
     t = @async HTTP.WebSockets.open(WSS_ENDPOINT) do ws
