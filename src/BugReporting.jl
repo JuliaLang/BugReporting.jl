@@ -1,5 +1,7 @@
 module BugReporting
 
+export replay, make_interactive_report
+
 using rr_jll
 using Zstd_jll
 using HTTP, JSON
@@ -44,7 +46,7 @@ end
 
 function rr_pack(trace_directory)
     check_rr_available()
-    
+
     rr() do rr_path
         for dir in collect_inner_traces(trace_directory)
             @debug("rr pack'ing $(dir)")
@@ -87,7 +89,7 @@ function download_rr_trace(trace_url; verbose=true)
     return Pkg.artifact_path(artifact_hash)
 end
 
-function rr_replay(trace_url)
+function replay(trace_url)
     if startswith(trace_url, "s3://")
         trace_url = string("https://s3.amazonaws.com/julialang-dumps/", trace_url[6:end])
     end
