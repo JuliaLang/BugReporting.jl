@@ -108,12 +108,13 @@ end
 
 
 function make_interactive_report(report_type, ARGS=[])
+    default_julia_args = `--history-file=no`
     if report_type == "justrr"
-        rr_record(Base.julia_cmd(), ARGS)
+        rr_record(`$(Base.julia_cmd()) $default_julia_args`, ARGS)
         return
     elseif report_type == "rr"
         artifact_hash = Pkg.create_artifact() do trace_dir
-            rr_record(Base.julia_cmd(), ARGS; trace_dir=trace_dir)
+            rr_record(`$(Base.julia_cmd()) $default_julia_args`, ARGS; trace_dir=trace_dir)
             @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
             rr_pack(trace_dir)
         end
