@@ -1,5 +1,8 @@
 module BugReporting
 
+# Use README as the docstring of the module:
+@doc read(joinpath(dirname(@__DIR__), "README.md"), String) BugReporting
+
 export replay, make_interactive_report
 
 using rr_jll
@@ -120,8 +123,12 @@ function make_interactive_report(report_type, ARGS=[])
         end
         upload_rr_trace(Pkg.artifact_path(artifact_hash))
         return
+    elseif report_type == "help"
+        show(stdout, "text/plain", @doc(BugReporting))
+        println()
+        return
     end
-    error("Unknown report type")
+    error("Unknown report type: $report_type")
 end
 
 const S3_CHUNK_SIZE = 25 * 1024 * 1024 # 25 MB
