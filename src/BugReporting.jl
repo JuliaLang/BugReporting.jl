@@ -9,6 +9,14 @@ using AWSCore, AWSS3
 using Tar
 using Pkg
 
+# https://github.com/JuliaLang/julia/pull/29411
+if isdefined(Base, :exit_on_sigint)
+    using Base: exit_on_sigint
+else
+    exit_on_sigint(on::Bool) =
+        ccall(:jl_exit_on_sigint, Cvoid, (Cint,), on)
+end
+
 const WSS_ENDPOINT = "wss://53ly7yebjg.execute-api.us-east-1.amazonaws.com/test"
 const GITHUB_APP_ID = "Iv1.c29a629771fe63c4"
 const TRACE_BUCKET = "julialang-dumps"
@@ -113,6 +121,7 @@ function make_interactive_report(report_type, ARGS=[])
         rr_record(`$(Base.julia_cmd()) $default_julia_args`, ARGS)
         return
     elseif report_type == "rr"
+        exit_on_sigint(false)  # throw InterruptException on Ctrl-C
         artifact_hash = Pkg.create_artifact() do trace_dir
             rr_record(`$(Base.julia_cmd()) $default_julia_args`, ARGS; trace_dir=trace_dir)
             @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
@@ -157,7 +166,18 @@ function upload_rr_trace(trace_directory)
     """)
     println("To upload a trace, please authenticate, by visiting:\n")
     println("\thttps://github.com/login/oauth/authorize?client_id=$GITHUB_APP_ID&state=$(HTTP.escapeuri(connectionId))")
-    s3creds = take!(c)
+    println("\n", "You can cancel upload by `Ctrl-C`.")
+    flush(stdout)
+    s3creds = try
+        take!(c)
+    catch err
+        if err isa InterruptException
+            println()
+            println("Cancel uploading the trace.")
+            return
+        end
+        rethrow()
+    end
 
     println()
     @info "Uploading Trace directory"
