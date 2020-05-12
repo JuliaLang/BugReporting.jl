@@ -17,7 +17,7 @@ const GITHUB_APP_ID = "Iv1.c29a629771fe63c4"
 const TRACE_BUCKET = "julialang-dumps"
 
 function check_rr_available()
-    if isempty(rr_jll.rr_path)
+    if !isdefined(rr_jll, :rr_path)
         error("RR not available on this platform")
     end
 end
