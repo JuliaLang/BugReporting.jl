@@ -120,7 +120,7 @@ end
 
 function make_interactive_report(report_type, ARGS=[])
     default_julia_args = `--history-file=no`
-    if report_type == "justrr"
+    if report_type == "rr-local"
         rr_record(`$(Base.julia_cmd()) $default_julia_args`, ARGS)
         return
     elseif report_type == "rr"
