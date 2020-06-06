@@ -5,6 +5,7 @@ module BugReporting
 
 export replay, make_interactive_report
 
+using Base.Filesystem: uperm
 using rr_jll
 using Zstd_jll
 using HTTP, JSON
@@ -146,7 +147,12 @@ include("sync_compat.jl")
 
 function upload_rr_trace(trace_directory)
     # Auto-pack this trace directory if it hasn't already been:
-    rr_pack(trace_directory)
+    sample_directory = joinpath(trace_directory, "latest-trace")
+    if isdir(sample_directory) && uperm(sample_directory) & 0x2 == 0
+        @info "`$sample_directory` not writable. Skipping `rr pack`."
+    else
+        rr_pack(trace_directory)
+    end
 
     c = Channel()
     t = @async HTTP.WebSockets.open(WSS_ENDPOINT) do ws
