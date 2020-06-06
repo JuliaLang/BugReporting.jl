@@ -215,10 +215,11 @@ function upload_rr_trace(trace_directory)
                 buf = Vector{UInt8}(undef, S3_CHUNK_SIZE)
                 n = readbytes!(proc, buf)
                 n < S3_CHUNK_SIZE && resize!(buf, n)
+                resize!(tags, i)
                 let partno = i, buf=buf
                     @async begin
                         try
-                            push!(tags, s3_upload_part(aws, upload, partno, buf))
+                            tags[partno] = s3_upload_part(aws, upload, partno, buf)
                         catch e
                             close(proc)
                             rethrow(e)
