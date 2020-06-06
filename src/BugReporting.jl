@@ -31,6 +31,34 @@ function check_rr_available()
     end
 end
 
+get_record_flags() =
+    split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
+
+struct InvalidPerfEventParanoidError <: Exception
+    value
+end
+
+function Base.showerror(io::IO, err::InvalidPerfEventParanoidError)
+    println(io, "InvalidPerfEventParanoidError")
+    print(io, """
+    rr needs /proc/sys/kernel/perf_event_paranoid <= 1, but it is $(err.value).
+    Change it to 1, or use `JULIA_RR_RECORD_ARGS=-n julia --bug-report=rr` (slow).
+    Consider putting 'kernel.perf_event_paranoid = 1' in /etc/sysctl.conf
+    or change it temporarily by
+        echo 1 | sudo tee /proc/sys/kernel/perf_event_paranoid
+    """)
+end
+
+# `path` used for testing
+function check_perf_event_paranoid(path = "/proc/sys/kernel/perf_event_paranoid")
+    isempty(intersect(["-n", "--no-syscall-buffer"], get_record_flags())) || return
+    isfile(path) || return  # let `rr` handle this
+    value = tryparse(Int, read(path, String))
+    value === nothing && return  # let `rr` handle this
+    value <= 1 && return
+    throw(InvalidPerfEventParanoidError(value))
+end
+
 function collect_inner_traces(trace_directory)
     # If this is already a trace directory, return just it
     if isfile(joinpath(trace_directory, "version"))
@@ -69,8 +97,9 @@ end
 
 function rr_record(args...; trace_dir=nothing)
     check_rr_available()
+    check_perf_event_paranoid()
 
-    record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
+    record_flags = get_record_flags()
     rr() do rr_path
         new_env = copy(ENV)
         if trace_dir !== nothing
