@@ -9,6 +9,15 @@ upload rr traces (and in the future potentially other report types).
 
 Run `julia` inside `rr record` and upload the recorded trace.
 
+### `--bug-report=rr-local`
+
+Run `julia` inside `rr record` but do not upload the recorded trace. Useful for local debugging.
+
 ### `--bug-report=help`
 
 Print help message and exit.
+
+## Using the traces for local debugging
+
+You can use this package also for debugging your own Julia code locally. Use `--bug-report=rr-local`
+to record a trace, and `replay(PATH)` to replay a trace.
