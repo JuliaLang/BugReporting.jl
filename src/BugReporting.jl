@@ -6,7 +6,7 @@ module BugReporting
 export replay, make_interactive_report
 
 using Base.Filesystem: uperm
-using rr_jll
+using Artifacts
 using Zstd_jll
 using HTTP, JSON
 using AWSCore, AWSS3
@@ -25,10 +25,9 @@ const WSS_ENDPOINT = "wss://53ly7yebjg.execute-api.us-east-1.amazonaws.com/test"
 const GITHUB_APP_ID = "Iv1.c29a629771fe63c4"
 const TRACE_BUCKET = "julialang-dumps"
 
+rr() = joinpath(artifact"rr", "bin", "rr")
 function check_rr_available()
-    if !isdefined(rr_jll, :rr_path)
-        error("RR not available on this platform")
-    end
+    return isfile(rr())
 end
 
 get_record_flags() =
@@ -87,11 +86,10 @@ end
 function rr_pack(trace_directory)
     check_rr_available()
 
-    rr() do rr_path
-        for dir in collect_inner_traces(trace_directory)
-            @debug("rr pack'ing $(dir)")
-            run(`$rr_path pack $(dir)`)
-        end
+    rr_path = rr()
+    for dir in collect_inner_traces(trace_directory)
+        @debug("rr pack'ing $(dir)")
+        run(`$(rr_path) pack $(dir)`)
     end
 end
 
@@ -100,18 +98,17 @@ function rr_record(args...; trace_dir=nothing)
     check_perf_event_paranoid()
 
     record_flags = get_record_flags()
-    rr() do rr_path
-        new_env = copy(ENV)
-        if trace_dir !== nothing
-            new_env["_RR_TRACE_DIR"] = trace_dir
-        end
-        # Intersperse all given arguments with spaces, then splat:
-        rr_cmd = `$(rr_path) record $(record_flags)`
-        for arg in args
-            rr_cmd = `$(rr_cmd) $(arg)`
-        end
-        run(ignorestatus(setenv(rr_cmd, new_env)))
+    rr_path = rr()
+    new_env = copy(ENV)
+    if trace_dir !== nothing
+        new_env["_RR_TRACE_DIR"] = trace_dir
     end
+    # Intersperse all given arguments with spaces, then splat:
+    rr_cmd = `$(rr_path) record $(record_flags)`
+    for arg in args
+        rr_cmd = `$(rr_cmd) $(arg)`
+    end
+    run(ignorestatus(setenv(rr_cmd, new_env)))
 end
 
 function download_rr_trace(trace_url; verbose=true)
@@ -142,9 +139,8 @@ function replay(trace_url)
         error("Invalid trace location: $(trace_url)")
     end
 
-    rr() do rr_path
-        run(`$(rr_path) replay $(find_latest_trace(trace_url))`)
-    end
+    rr_path = rr()
+    run(`$(rr_path) replay $(find_latest_trace(trace_url))`)
 end
 
 

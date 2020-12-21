@@ -1,0 +1,51 @@
+## Note: this Artifacts.toml has been manually constructed!
+#  We have:
+#    - Copied https://raw.githubusercontent.com/JuliaBinaryWrappers/rr_jll.jl/main/Artifacts.toml
+#    - Duplicated all stanzas and replaced `x86_64` with `i686`
+#  This allows us to still use things like `select_downloadable_artifacts()` or just `artifact"rr"`
+#  on both the `i686` and `x86_64` glibc Linux platforms to get a compatible `rr` binary.  We're
+#  purposefully bypassing JLLWrappers and whatnot because we want to run `x86_64` binaries on `i686` machines.
+
+[[rr]]
+arch = "x86_64"
+cxxstring_abi = "cxx03"
+git-tree-sha1 = "68d1f350262c8ccf0c6d2c0a06ffbc8e1bbf11b4"
+libc = "glibc"
+os = "linux"
+
+    [[rr.download]]
+    sha256 = "3dfafbe0eb57999723a249cf5d05c923e05df56f2a4ff5eb0ba3a150e1ba3a89"
+    url = "https://github.com/JuliaBinaryWrappers/rr_jll.jl/releases/download/rr-v5.4.1+5/rr.v5.4.1.x86_64-linux-gnu-cxx03.tar.gz"
+
+[[rr]]
+arch = "x86_64"
+cxxstring_abi = "cxx11"
+git-tree-sha1 = "52f01c25fd3bd6b5a8e78d5eee850c67d9bba5fb"
+libc = "glibc"
+os = "linux"
+
+    [[rr.download]]
+    sha256 = "c7cc00735be80a07f4629656c5881f48c98f917cfccbb0d8f0d9776d799c5825"
+    url = "https://github.com/JuliaBinaryWrappers/rr_jll.jl/releases/download/rr-v5.4.1+5/rr.v5.4.1.x86_64-linux-gnu-cxx11.tar.gz"
+
+[[rr]]
+arch = "i686"
+cxxstring_abi = "cxx03"
+git-tree-sha1 = "68d1f350262c8ccf0c6d2c0a06ffbc8e1bbf11b4"
+libc = "glibc"
+os = "linux"
+
+    [[rr.download]]
+    sha256 = "3dfafbe0eb57999723a249cf5d05c923e05df56f2a4ff5eb0ba3a150e1ba3a89"
+    url = "https://github.com/JuliaBinaryWrappers/rr_jll.jl/releases/download/rr-v5.4.1+5/rr.v5.4.1.x86_64-linux-gnu-cxx03.tar.gz"
+
+[[rr]]
+arch = "i686"
+cxxstring_abi = "cxx11"
+git-tree-sha1 = "52f01c25fd3bd6b5a8e78d5eee850c67d9bba5fb"
+libc = "glibc"
+os = "linux"
+
+    [[rr.download]]
+    sha256 = "c7cc00735be80a07f4629656c5881f48c98f917cfccbb0d8f0d9776d799c5825"
+    url = "https://github.com/JuliaBinaryWrappers/rr_jll.jl/releases/download/rr-v5.4.1+5/rr.v5.4.1.x86_64-linux-gnu-cxx11.tar.gz"
