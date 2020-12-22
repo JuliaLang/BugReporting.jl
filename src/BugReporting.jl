@@ -6,7 +6,7 @@ module BugReporting
 export replay, make_interactive_report
 
 using Base.Filesystem: uperm
-using Artifacts
+using Artifacts, Base.BinaryPlatforms
 using Zstd_jll
 using HTTP, JSON
 using AWSCore, AWSS3
@@ -25,7 +25,9 @@ const WSS_ENDPOINT = "wss://53ly7yebjg.execute-api.us-east-1.amazonaws.com/test"
 const GITHUB_APP_ID = "Iv1.c29a629771fe63c4"
 const TRACE_BUCKET = "julialang-dumps"
 
-rr() = joinpath(artifact"rr", "bin", "rr")
+function rr(arch = readchomp(`uname -m`))
+    joinpath(@artifact_str("rr", Platform(arch, "linux"; libc="glibc")), "bin", "rr")
+end
 function check_rr_available()
     return isfile(rr())
 end
