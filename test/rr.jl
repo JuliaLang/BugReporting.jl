@@ -48,7 +48,7 @@ using BugReporting, Test, Pkg
         new_stderr_rd, new_stderr_wr = Base.redirect_stderr()
         new_stdin_rd, new_stdin_wr = Base.redirect_stdin()
         write(new_stdin_wr, "continue\nquit\ny")
-        BugReporting.rr_replay(temp_trace_dir)
+        BugReporting.replay(temp_trace_dir)
         Base.redirect_stdout(old_stdout)
         Base.redirect_stderr(old_stderr)
         Base.redirect_stdin(old_stdin)
