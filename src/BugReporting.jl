@@ -166,6 +166,9 @@ function make_interactive_report(report_type, ARGS=[])
         show(stdout, "text/plain", @doc(BugReporting))
         println()
         return
+    elseif report_type == "rr-pack"
+        rr_pack(`$(Base.julia_cmd()) $default_julia_args`, ARGS)
+        return 
     end
     error("Unknown report type: $report_type")
 end
