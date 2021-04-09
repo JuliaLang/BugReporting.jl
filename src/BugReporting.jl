@@ -95,6 +95,25 @@ function rr_pack(trace_directory)
     end
 end
 
+# Helper function to compress a trace into a `.tar.zst` file
+function compress_trace(trace_directory::String, output_file::String)
+    # Ensure it's packed
+    rr_pack(trace_directory)
+
+    # Start up our `zstdmt` process to write out to that file
+    proc = zstdmt() do zstdp
+        open(`$(zstdp) - -o $(output_file)`, "r+")
+    end
+
+    # Feed the tarball into that waiting process
+    Tar.create(trace_directory, proc)
+
+    # Ensure everything closes nicely
+    close(proc.in)
+    wait(proc)
+    return nothing
+end
+
 function rr_record(args...; trace_dir=nothing)
     check_rr_available()
     check_perf_event_paranoid()
