@@ -43,6 +43,13 @@ using BugReporting, Test, Pkg
         trace_files = readdir(joinpath(temp_trace_dir,"latest-trace"))
         @test !isempty(filter(f -> startswith(f, "mmap_pack_"), trace_files))
 
+        # Test that we can compress that trace directory
+        mktempdir() do temp_out_dir
+            tarzst_path = joinpath(temp_out_dir, "trace.tar.zst")
+            BugReporting.compress_trace(temp_trace_dir, tarzst_path)
+            @test isfile(tarzst_path)
+        end
+
         # Test that we can replay that trace: (just send in `continue` immediately to let it run)
         new_stdout_rd, new_stdout_wr = Base.redirect_stdout()
         new_stderr_rd, new_stderr_wr = Base.redirect_stderr()
