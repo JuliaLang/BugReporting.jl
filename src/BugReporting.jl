@@ -133,20 +133,29 @@ function rr_record(args...; trace_dir=nothing)
     end
 end
 
-function download_rr_trace(trace_url; verbose=true)
-    Pkg.PlatformEngines.probe_platform_engines!()
+function decompress_rr_trace(trace_file, out_dir)
+    proc = zstdmt() do zstdp
+        open(`$zstdp --stdout -d $trace_file`, "r+")
+    end
+    Tar.extract(proc, out_dir)
+    return nothing
+end
+
+function decompress_rr_trace(trace_file)
     artifact_hash = Pkg.create_artifact() do dir
-        mktempdir() do dl_dir
-            # Download into temporary directory, unpack into artifact directory
-            local_path = joinpath(dl_dir, "trace.tar.zst")
-            Pkg.PlatformEngines.download(trace_url, local_path; verbose=verbose)
-            proc = zstdmt() do zstdp
-                open(`$zstdp --stdout -d $local_path`, "r+")
-            end
-            Tar.extract(proc, dir)
-        end
+        decompress_rr_trace(trace_file, dir)
     end
     return Pkg.artifact_path(artifact_hash)
+end
+
+function download_rr_trace(trace_url; verbose=true)
+    Pkg.PlatformEngines.probe_platform_engines!()
+    mktempdir() do dl_dir
+        # Download into temporary directory, unpack into artifact directory
+        local_path = joinpath(dl_dir, "trace.tar.zst")
+        Pkg.PlatformEngines.download(trace_url, local_path; verbose=verbose)
+        decompress_rr_trace(local_path)
+    end
 end
 
 function replay(trace_url)
@@ -157,6 +166,12 @@ function replay(trace_url)
         trace_url = download_rr_trace(trace_url)
     end
 
+    # If it's a file, try to decompress it
+    if isfile(trace_url)
+        trace_url = decompress_rr_trace(trace_url)
+    end
+
+    # If it's not a directory by now, we don't know what to do
     if !isdir(trace_url)
         error("Invalid trace location: $(trace_url)")
     end
