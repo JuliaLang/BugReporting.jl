@@ -31,8 +31,9 @@ function check_rr_available()
     end
 end
 
-get_record_flags() =
-    split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
+# Values that are initialized in `__init__()`
+record_flags = String[]
+ignore_child_status = false
 
 struct InvalidPerfEventParanoidError <: Exception
     value
@@ -51,7 +52,7 @@ end
 
 # `path` used for testing
 function check_perf_event_paranoid(path = "/proc/sys/kernel/perf_event_paranoid")
-    isempty(intersect(["-n", "--no-syscall-buffer"], get_record_flags())) || return
+    isempty(intersect(["-n", "--no-syscall-buffer"], record_flags)) || return
     isfile(path) || return  # let `rr` handle this
     value = tryparse(Int, read(path, String))
     value === nothing && return  # let `rr` handle this
@@ -118,7 +119,6 @@ function rr_record(args...; trace_dir=nothing)
     check_rr_available()
     check_perf_event_paranoid()
 
-    record_flags = get_record_flags()
     rr() do rr_path
         new_env = copy(ENV)
         if trace_dir !== nothing
@@ -129,7 +129,7 @@ function rr_record(args...; trace_dir=nothing)
         for arg in args
             rr_cmd = `$(rr_cmd) $(arg)`
         end
-        run(ignorestatus(setenv(rr_cmd, new_env)))
+        return run(ignorestatus(setenv(rr_cmd, new_env)))
     end
 end
 
@@ -181,16 +181,38 @@ function replay(trace_url)
     end
 end
 
+function handle_child_error(p::Base.Process)
+    # If the user has requested that we ignore child status, do so
+    if ignore_child_status
+        return
+    end
+
+    if !success(p)
+        @error("Debugged process failed", exitcode=p.exitcode, termsignal=p.termsignal)
+
+        # Return the exit code if that is nonzero
+        if p.exitcode != 0
+            exit(p.exitcode)
+        end
+
+        # If the child instead signalled, we recreate the same signal in ourselves
+        ccall(:signal, Ptr{Cvoid}, (Cint, Ptr{Cvoid}), p.termsignal, C_NULL)
+        ccall(:raise, Cint, (Cint,), p.termsignal)
+    end
+end
+
 
 function make_interactive_report(report_type, ARGS=[])
     default_julia_args = `--history-file=no`
     if report_type == "rr-local"
-        rr_record(`$(Base.julia_cmd()) $default_julia_args`, ARGS)
+        proc = rr_record(`$(Base.julia_cmd()) $default_julia_args`, ARGS)
+        handle_child_error(proc)
         return
     elseif report_type == "rr"
         exit_on_sigint(false)  # throw InterruptException on Ctrl-C
         artifact_hash = Pkg.create_artifact() do trace_dir
-            rr_record(`$(Base.julia_cmd()) $default_julia_args`, ARGS; trace_dir=trace_dir)
+            proc = rr_record(`$(Base.julia_cmd()) $default_julia_args`, ARGS; trace_dir=trace_dir)
+            handle_child_error(proc)
             @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
             rr_pack(trace_dir)
         end
@@ -305,5 +327,13 @@ function upload_rr_trace(trace_directory)
     wait(t)
     println("Uploaded to https://s3.amazonaws.com/$TRACE_BUCKET/$(s3creds["UPLOAD_PATH"])")
 end
+
+
+function __init__()
+    # Read in environment variable settings
+    record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
+    ignore_child_status = parse(Bool, get(ENV, "JULIA_RR_IGNORE_STATUS", "false"))
+end
+
 
 end # module
