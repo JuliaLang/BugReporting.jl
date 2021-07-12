@@ -1,24 +1,15 @@
 module BugReportingUnitTests
 
 using BugReporting:
-    check_perf_event_paranoid, get_record_flags, InvalidPerfEventParanoidError
+    check_perf_event_paranoid, InvalidPerfEventParanoidError
 using Test
-
-@testset "get_record_flags" begin
-    @test withenv(get_record_flags, "JULIA_RR_RECORD_ARGS" => "") == String[]
-    @test withenv(get_record_flags, "JULIA_RR_RECORD_ARGS" => " ") == String[]
-    @test withenv(get_record_flags, "JULIA_RR_RECORD_ARGS" => "-n") == ["-n"]
-    @test withenv(get_record_flags, "JULIA_RR_RECORD_ARGS" => " -n ") == ["-n"]
-end
 
 @testset "check_perf_event_paranoid" begin
     function check(value, flags = "")
         mktemp() do path, io
             write(io, value)
             close(io)
-            withenv("JULIA_RR_RECORD_ARGS" => flags) do
-                check_perf_event_paranoid(path)
-            end
+            check_perf_event_paranoid(path; record_flags=Base.shell_split(flags))
         end
         return true
     end
@@ -31,9 +22,7 @@ end
 
     # Let `rr` handle these?
     @test check("non integer")
-    withenv("JULIA_RR_RECORD_ARGS" => "") do
-        @test check_perf_event_paranoid("/hopefully/non/existing/path") === nothing
-    end
+    @test check_perf_event_paranoid("/hopefully/non/existing/path"; record_flags=String[]) === nothing
 
     err = try
         check("2")

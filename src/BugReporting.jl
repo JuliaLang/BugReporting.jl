@@ -32,7 +32,7 @@ function check_rr_available()
 end
 
 # Values that are initialized in `__init__()`
-record_flags = String[]
+global_record_flags = String[]
 ignore_child_status = false
 
 struct InvalidPerfEventParanoidError <: Exception
@@ -51,7 +51,7 @@ function Base.showerror(io::IO, err::InvalidPerfEventParanoidError)
 end
 
 # `path` used for testing
-function check_perf_event_paranoid(path = "/proc/sys/kernel/perf_event_paranoid")
+function check_perf_event_paranoid(path = "/proc/sys/kernel/perf_event_paranoid"; record_flags = global_record_flags)
     isempty(intersect(["-n", "--no-syscall-buffer"], record_flags)) || return
     isfile(path) || return  # let `rr` handle this
     value = tryparse(Int, read(path, String))
@@ -103,7 +103,7 @@ function compress_trace(trace_directory::String, output_file::String)
 
     # Start up our `zstdmt` process to write out to that file
     proc = zstdmt() do zstdp
-        open(`$(zstdp) - -o $(output_file)`, "r+")
+        open(pipeline(`$(zstdp) - -o $(output_file)`, stderr=stderr), "r+")
     end
 
     # Feed the tarball into that waiting process
@@ -125,7 +125,7 @@ function rr_record(args...; trace_dir=nothing)
             new_env["_RR_TRACE_DIR"] = trace_dir
         end
         # Intersperse all given arguments with spaces, then splat:
-        rr_cmd = `$(rr_path) record $(record_flags)`
+        rr_cmd = `$(rr_path) record $(global_record_flags)`
         for arg in args
             rr_cmd = `$(rr_cmd) $(arg)`
         end
@@ -332,7 +332,7 @@ end
 
 function __init__()
     # Read in environment variable settings
-    record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
+    global_record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
     ignore_child_status = parse(Bool, get(ENV, "JULIA_RR_IGNORE_STATUS", "false"))
 end
 
