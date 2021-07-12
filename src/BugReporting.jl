@@ -149,7 +149,7 @@ function decompress_rr_trace(trace_file)
 end
 
 function download_rr_trace(trace_url; verbose=true)
-    Pkg.PlatformEngines.probe_platform_engines!()
+    isdefined(Pkg.PlatformEngines, :probe_platform_engines) && Pkg.PlatformEngines.probe_platform_engines!()
     mktempdir() do dl_dir
         # Download into temporary directory, unpack into artifact directory
         local_path = joinpath(dl_dir, "trace.tar.zst")
