@@ -21,3 +21,5 @@ Print help message and exit.
 
 You can use this package also for debugging your own Julia code locally. Use `--bug-report=rr-local`
 to record a trace, and `replay(PATH)` to replay a trace.
+
+For example, if you have a script in a project that you'd like to trace, run `julia --bug-report=rr -- --project=foo run.jl`.
