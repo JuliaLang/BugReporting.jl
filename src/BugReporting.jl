@@ -9,7 +9,7 @@ using Base.Filesystem: uperm
 using rr_jll
 using Zstd_jll
 using HTTP, JSON
-using AWSCore, AWSS3
+using AWS, AWSS3
 using Tar
 using Pkg
 
@@ -188,7 +188,7 @@ function handle_child_error(p::Base.Process)
     end
 
     if !success(p)
-        @error("Debugged process failed", exitcode=p.exitcode, termsignal=p.termsignal)
+        @info("Debugged process failed. Unless you see rr errors above, the trace likely completed.", exitcode=p.exitcode, termsignal=p.termsignal)
 
         # Return the exit code if that is nonzero
         if p.exitcode != 0
@@ -210,13 +210,14 @@ function make_interactive_report(report_type, ARGS=[])
         return
     elseif report_type == "rr"
         exit_on_sigint(false)  # throw InterruptException on Ctrl-C
+        local proc
         artifact_hash = Pkg.create_artifact() do trace_dir
             proc = rr_record(`$(Base.julia_cmd()) $default_julia_args`, ARGS; trace_dir=trace_dir)
-            handle_child_error(proc)
             @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
             rr_pack(trace_dir)
         end
         upload_rr_trace(Pkg.artifact_path(artifact_hash))
+        handle_child_error(proc)
         return
     elseif report_type == "help"
         show(stdout, "text/plain", @doc(BugReporting))
@@ -280,11 +281,11 @@ function upload_rr_trace(trace_directory)
     println()
     @info "Uploading Trace directory"
 
-    creds = AWSCore.AWSCredentials(
+    creds = AWS.AWSCredentials(
         s3creds["AWS_ACCESS_KEY_ID"],
         s3creds["AWS_SECRET_ACCESS_KEY"],
         s3creds["AWS_SESSION_TOKEN"])
-    aws = AWSCore.aws_config(creds = creds, region="us-east-1")
+    aws = AWS.AWSConfig(creds = creds, region="us-east-1")
 
     # Tar it up
     proc = zstdmt() do zstdp
