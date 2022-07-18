@@ -206,16 +206,22 @@ end
 
 
 function make_interactive_report(report_type, ARGS=[])
-    default_julia_args = `--history-file=no`
+    cmd = Base.julia_cmd()
+    if Base.JLOptions().project != C_NULL
+        # --project is not included in julia_cmd
+        cmd = `$cmd --project=$(unsafe_string(Base.JLOptions().project))`
+    end
+    cmd = `$cmd --history-file=no`
+
     if report_type == "rr-local"
-        proc = rr_record(`$(Base.julia_cmd()) $default_julia_args`, ARGS)
+        proc = rr_record(cmd, ARGS)
         handle_child_error(proc)
         return
     elseif report_type == "rr"
         exit_on_sigint(false)  # throw InterruptException on Ctrl-C
         local proc
         artifact_hash = Pkg.create_artifact() do trace_dir
-            proc = rr_record(`$(Base.julia_cmd()) $default_julia_args`, ARGS; trace_dir=trace_dir)
+            proc = rr_record(cmd, ARGS; trace_dir=trace_dir)
             @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
             rr_pack(trace_dir)
         end
