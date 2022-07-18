@@ -211,6 +211,13 @@ function make_interactive_report(report_type, ARGS=[])
         # --project is not included in julia_cmd
         cmd = `$cmd --project=$(unsafe_string(Base.JLOptions().project))`
     end
+    if Base.JLOptions().commands != C_NULL
+        # -e and friends aren't either
+        commands = Dict(Base.unsafe_load_commands(Base.JLOptions().commands))
+        if haskey(commands, 'e')
+            cmd = `$cmd -e $(commands['e'])`
+        end
+    end
     cmd = `$cmd --history-file=no`
 
     if report_type == "rr-local"
