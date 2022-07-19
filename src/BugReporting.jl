@@ -335,8 +335,8 @@ end
 
 function __init__()
     # Read in environment variable settings
-    global_record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
-    ignore_child_status = parse(Bool, get(ENV, "JULIA_RR_IGNORE_STATUS", "false"))
+    global global_record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
+    global ignore_child_status = parse(Bool, get(ENV, "JULIA_RR_IGNORE_STATUS", "false"))
 end
 
 
