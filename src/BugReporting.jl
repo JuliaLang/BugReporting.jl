@@ -163,7 +163,7 @@ function replay(trace_url)
     if startswith(trace_url, "s3://")
         trace_url = string("https://s3.amazonaws.com/julialang-dumps/", trace_url[6:end])
     end
-    if startswith(trace_url, "https://")
+    if startswith(trace_url, "http://") || startswith(trace_url, "https://")
         trace_url = download_rr_trace(trace_url)
     end
 
