@@ -191,7 +191,9 @@ function handle_child_error(p::Base.Process)
     end
 
     if !success(p)
-        @info("Debugged process failed. Unless you see rr errors above, the trace likely completed.", exitcode=p.exitcode, termsignal=p.termsignal)
+        println("""The debugged process failed. This is to be expected: Unless you see rr errors above,
+                   the trace likely completed. Returning this status (code $(p.exitcode), signal $(p.termsignal)) to the caller.
+                   If you want Julia to proceed instead, launch with JULIA_RR_IGNORE_STATUS=true.""")
 
         # Return the exit code if that is nonzero
         if p.exitcode != 0
