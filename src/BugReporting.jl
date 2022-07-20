@@ -7,6 +7,7 @@ export replay, make_interactive_report
 
 using Base.Filesystem: uperm
 using rr_jll
+using GDB_jll
 using Zstd_jll
 using HTTP, JSON
 using AWS, AWSS3
@@ -177,7 +178,9 @@ function replay(trace_url)
     end
 
     rr() do rr_path
-        run(`$(rr_path) replay $(find_latest_trace(trace_url))`)
+        gdb() do gdb_path
+            run(`$(rr_path) replay -d $(gdb_path) $(find_latest_trace(trace_url))`)
+        end
     end
 end
 
