@@ -92,16 +92,14 @@ using BugReporting, Test, Pkg, HTTP
 
             # Test that we can replay that trace from an URL (actually uploading it is hard)
             port = rand(1024:65535)
-            server = @async begin
-                HTTP.listen("127.0.0.1", port) do http::HTTP.Stream
-                    HTTP.setstatus(http, 200)
-                    HTTP.startwrite(http)
-                    write(http, read(tarzst_path))
-                    HTTP.closewrite(http)
-                end
+            server = HTTP.listen!("127.0.0.1", port) do http::HTTP.Stream
+                HTTP.setstatus(http, 200)
+                HTTP.startwrite(http)
+                write(http, read(tarzst_path))
+                HTTP.closewrite(http)
             end
-            sleep(1)
             test_replay("http://127.0.0.1:$port")
+            close(server)
         end
     end
 end
