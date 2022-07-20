@@ -44,12 +44,12 @@ end
 function Base.showerror(io::IO, err::InvalidPerfEventParanoidError)
     println(io, "InvalidPerfEventParanoidError")
     print(io, """
-    rr needs /proc/sys/kernel/perf_event_paranoid <= 1, but it is $(err.value).
-    Change it to 1, or use `JULIA_RR_RECORD_ARGS=-n julia --bug-report=rr` (slow).
-    Consider putting 'kernel.perf_event_paranoid = 1' in /etc/sysctl.conf
-    or change it temporarily by
-        echo 1 | sudo tee /proc/sys/kernel/perf_event_paranoid
-    """)
+        rr needs /proc/sys/kernel/perf_event_paranoid <= 1, but it is $(err.value).
+        Change it to 1, or use `JULIA_RR_RECORD_ARGS=-n julia --bug-report=rr` (slow).
+        Consider putting 'kernel.perf_event_paranoid = 1' in /etc/sysctl.conf
+        and rebooting. You can change the value for the current session by executing
+            echo 1 | sudo tee /proc/sys/kernel/perf_event_paranoid
+        """)
 end
 
 # `path` used for testing
