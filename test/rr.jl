@@ -91,8 +91,9 @@ using BugReporting, Test, Pkg, HTTP
             test_replay(tarzst_path)
 
             # Test that we can replay that trace from an URL (actually uploading it is hard)
+            port = rand(1024:65535)
             server = @async begin
-                HTTP.listen("127.0.0.1", 8081) do http::HTTP.Stream
+                HTTP.listen("127.0.0.1", port) do http::HTTP.Stream
                     HTTP.setstatus(http, 200)
                     HTTP.startwrite(http)
                     write(http, read(tarzst_path))
@@ -100,7 +101,7 @@ using BugReporting, Test, Pkg, HTTP
                 end
             end
             sleep(1)
-            test_replay("http://127.0.0.1:8081")
+            test_replay("http://127.0.0.1:$port")
         end
     end
 end
