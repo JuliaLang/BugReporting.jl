@@ -92,7 +92,8 @@ function rr_pack(trace_directory)
     rr() do rr_path
         for dir in collect_inner_traces(trace_directory)
             @debug("rr pack'ing $(dir)")
-            run(`$rr_path pack $(dir)`)
+            output = read(`$rr_path pack $(dir)`, String)
+            isempty(output) || print(output)
         end
     end
 end
@@ -104,7 +105,7 @@ function compress_trace(trace_directory::String, output_file::String)
 
     # Start up our `zstdmt` process to write out to that file
     proc = zstdmt() do zstdp
-        open(pipeline(`$(zstdp) - -o $(output_file)`, stderr=stderr), "r+")
+        open(pipeline(`$(zstdp) --quiet - -o $(output_file)`, stderr=stderr), "r+")
     end
 
     # Feed the tarball into that waiting process
@@ -136,7 +137,7 @@ end
 
 function decompress_rr_trace(trace_file, out_dir)
     proc = zstdmt() do zstdp
-        open(`$zstdp --stdout -d $trace_file`, "r+")
+        open(`$zstdp --quiet --stdout -d $trace_file`, "r+")
     end
     Tar.extract(proc, out_dir)
     return nothing
@@ -163,7 +164,7 @@ function replay(trace_url)
     if startswith(trace_url, "s3://")
         trace_url = string("https://s3.amazonaws.com/julialang-dumps/", trace_url[6:end])
     end
-    if startswith(trace_url, "https://")
+    if startswith(trace_url, "http://") || startswith(trace_url, "https://")
         trace_url = download_rr_trace(trace_url)
     end
 

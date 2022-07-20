@@ -1,4 +1,4 @@
-using BugReporting, Test, Pkg
+using BugReporting, Test, Pkg, HTTP
 
 @testset "rr" begin
     try
@@ -8,7 +8,7 @@ using BugReporting, Test, Pkg
         return
     end
 
-    # Test that we can create a replay:
+    # Test that we can create a replay
     mktempdir() do temp_trace_dir
         msg = "Time is precious, spend it wisely"
         old_stdout = Base.stdout
@@ -46,43 +46,62 @@ using BugReporting, Test, Pkg
         trace_files = readdir(joinpath(temp_trace_dir,"latest-trace"))
         @test !isempty(filter(f -> startswith(f, "mmap_pack_"), trace_files))
 
-        # Test that we can compress that trace directory
+        # Test that we can replay that trace
+        function test_replay(path)
+            # Redirect `HOME` to a directory that we know doesn't contain a `.gdbinit` file,
+            # as that can screw up the `isempty(rr_stderr)` test below
+            withenv("HOME" => temp_trace_dir) do
+                # send in `continue` immediately to let it run
+                local new_stdout_wr, new_stderr_wr, new_stdin_rd
+                try
+                    new_stdout_rd, new_stdout_wr = Base.redirect_stdout()
+                    new_stderr_rd, new_stderr_wr = Base.redirect_stderr()
+                    new_stdin_rd, new_stdin_wr = Base.redirect_stdin()
+                    write(new_stdin_wr, "continue\nquit\ny")
+                    BugReporting.replay(path)
+                catch
+                finally
+                    Base.redirect_stdout(old_stdout)
+                    Base.redirect_stderr(old_stderr)
+                    Base.redirect_stdin(old_stdin)
+                    close(new_stdout_wr)
+                    close(new_stderr_wr)
+                    close(new_stdin_rd)
+                end
+
+                rr_stdout = String(read(new_stdout_rd))
+                rr_stderr = String(read(new_stderr_rd))
+
+                if !isempty(rr_stderr)
+                    @warn """There were warnings during replay:
+                             $rr_stderr"""
+                end
+
+                # Test that Julia spat out what we expect, still.
+                @test occursin(msg, rr_stdout)
+            end
+        end
+        test_replay(temp_trace_dir)
+
+        # Test that we can compress that trace directory, and replay that
         mktempdir() do temp_out_dir
             tarzst_path = joinpath(temp_out_dir, "trace.tar.zst")
             BugReporting.compress_trace(temp_trace_dir, tarzst_path)
             @test isfile(tarzst_path)
-        end
+            test_replay(tarzst_path)
 
-        # Redirect `HOME` to a directory that we know doesn't contain a `.gdbinit` file,
-        # as that can screw up the `isempty(rr_stderr)` test below
-        withenv("HOME" => temp_trace_dir) do
-            # Test that we can replay that trace: (just send in `continue` immediately to let it run)
-            local new_stdout_wr, new_stderr_wr, new_stdin_rd
-            try
-                new_stdout_rd, new_stdout_wr = Base.redirect_stdout()
-                new_stderr_rd, new_stderr_wr = Base.redirect_stderr()
-                new_stdin_rd, new_stdin_wr = Base.redirect_stdin()
-                write(new_stdin_wr, "continue\nquit\ny")
-                BugReporting.replay(temp_trace_dir)
-            catch
-            finally
-                Base.redirect_stdout(old_stdout)
-                Base.redirect_stderr(old_stderr)
-                Base.redirect_stdin(old_stdin)
-                close(new_stdout_wr)
-                close(new_stderr_wr)
-                close(new_stdin_rd)
+            # Test that we can replay that trace from an URL (actually uploading it is hard)
+            port = rand(1024:65535)
+            server = @async begin
+                HTTP.listen("127.0.0.1", port) do http::HTTP.Stream
+                    HTTP.setstatus(http, 200)
+                    HTTP.startwrite(http)
+                    write(http, read(tarzst_path))
+                    HTTP.closewrite(http)
+                end
             end
-
-            rr_stdout = String(read(new_stdout_rd))
-            rr_stderr = String(read(new_stderr_rd))
-
-            # Test that Julia spat out what we expect, still.
-            @test occursin(msg, rr_stdout)
-
-            if !isempty(rr_stderr)
-                @warn(rr_stderr)
-            end
+            sleep(1)
+            test_replay("http://127.0.0.1:$port")
         end
     end
 end
