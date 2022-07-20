@@ -262,11 +262,35 @@ function upload_rr_trace(trace_directory)
     c = Channel()
     t = @async HTTP.WebSockets.open(WSS_ENDPOINT) do ws
         HTTP.send(ws, "Hello Server, if it's not too much trouble, please send me S3 credentials")
-        x = HTTP.receive(ws)::String
-        put!(c, JSON.parse(String(x))["connectionId"])
+
+        let resp = HTTP.receive(ws)
+            isa(resp, String) || error("Invalid response from authentication server: expected TEXT, got BINARY")
+            data = try
+                JSON.parse(String(resp))
+            catch
+                error("Invalid response from authentication server: could not parse JSON reply (got '$resp')")
+            end
+            if !isa(data, Dict) || !haskey(data, "connectionId")
+                error("Invalid response from authentication server: invalid JSON reply (expected connectionId dict, got '$resp')")
+            end
+            put!(c, data["connectionId"])
+        end
+
         # This will block until the user has completed the authentication flow
-        x = HTTP.receive(ws)::String
-        push!(c, JSON.parse(String(x)))
+        let resp = HTTP.receive(ws)
+            isa(resp, String) || error("Invalid response from authentication server: expected TEXT, got BINARY")
+            data = try
+                JSON.parse(String(resp))
+            catch
+                error("Invalid response from authentication server: could not parse JSON reply (got '$resp')")
+            end
+            if !isa(data, Dict) || !haskey(data, "AWS_ACCESS_KEY_ID") || !haskey(data, "UPLOAD_PATH") ||
+               !haskey(data, "AWS_SECRET_ACCESS_KEY") || !haskey(data, "AWS_SESSION_TOKEN")
+                error("Invalid response from authentication server: invalid JSON reply (expected connectionId dict, got '$resp')")
+            end
+            isa(resp, String) || error("Invalid response from authentication server: expected TEXT, got BINARY")
+            push!(c, data)
+        end
     end
     bind(c, t)
     connectionId = take!(c)
