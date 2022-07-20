@@ -10,7 +10,6 @@ Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 GDB_jll = "a8b33d9f-0f8b-5197-9986-f85cbaa50c6c"
 HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
-Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 Tar = "a4e569a6-e804-4fa4-b0f3-eef7a1d5b13e"
 Zstd_jll = "3161d3a3-bdf6-5164-811a-617609db77b4"
 rr_jll = "e86bdf43-55f7-5ea2-9fd0-e7daa2c0f2b4"
@@ -26,6 +25,7 @@ rr_jll = "5.3.1"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 
 [targets]
-test = ["Test"]
+test = ["Test", "Pkg"]

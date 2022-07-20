@@ -12,7 +12,6 @@ using Zstd_jll
 using HTTP, JSON
 using AWS, AWSS3
 using Tar
-using Pkg
 import Downloads
 
 # https://github.com/JuliaLang/julia/pull/29411
@@ -169,15 +168,15 @@ function decompress_rr_trace(trace_file, out_dir)
 end
 
 function decompress_rr_trace(trace_file)
-    artifact_hash = Pkg.create_artifact() do dir
-        decompress_rr_trace(trace_file, dir)
-    end
-    return Pkg.artifact_path(artifact_hash)
+    # Extract into temporary directory (we'll clean-up when the process exists)
+    dir = mktempdir()
+    decompress_rr_trace(trace_file, dir)
+    return dir
 end
 
 function download_rr_trace(trace_url)
     mktempdir() do dl_dir
-        # Download into temporary directory, unpack into artifact directory
+        # Download into temporary directory (we'll clean-up straight away)
         local_path = joinpath(dl_dir, "trace.tar.zst")
         Downloads.download(trace_url, local_path)
         decompress_rr_trace(local_path)
@@ -252,12 +251,12 @@ function make_interactive_report(report_type, ARGS=[])
         handle_child_error(proc)
         return
     elseif report_type == "rr"
-        artifact_hash = Pkg.create_artifact() do trace_dir
+        mktempdir() do trace_dir
             proc = rr_record(cmd, ARGS; trace_dir=trace_dir)
             @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
             rr_pack(trace_dir)
+            upload_rr_trace(trace_dir)
         end
-        upload_rr_trace(Pkg.artifact_path(artifact_hash))
         handle_child_error(proc)
         return
     elseif report_type == "help"
