@@ -13,6 +13,7 @@ using HTTP, JSON
 using AWS, AWSS3
 using Tar
 using Pkg
+import Downloads
 
 # https://github.com/JuliaLang/julia/pull/29411
 if isdefined(Base, :exit_on_sigint)
@@ -150,12 +151,11 @@ function decompress_rr_trace(trace_file)
     return Pkg.artifact_path(artifact_hash)
 end
 
-function download_rr_trace(trace_url; verbose=true)
-    isdefined(Pkg.PlatformEngines, :probe_platform_engines) && Pkg.PlatformEngines.probe_platform_engines!()
+function download_rr_trace(trace_url)
     mktempdir() do dl_dir
         # Download into temporary directory, unpack into artifact directory
         local_path = joinpath(dl_dir, "trace.tar.zst")
-        Pkg.PlatformEngines.download(trace_url, local_path; verbose=verbose)
+        Downloads.download(trace_url, local_path)
         decompress_rr_trace(local_path)
     end
 end
