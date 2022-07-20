@@ -132,7 +132,31 @@ function rr_record(args...; trace_dir=nothing)
         for arg in args
             rr_cmd = `$(rr_cmd) $(arg)`
         end
-        return run(ignorestatus(setenv(rr_cmd, new_env)))
+
+        cmd = ignorestatus(setenv(rr_cmd, new_env))
+        proc = run(cmd, stdin, stdout, stderr; wait=false)
+
+        exit_on_sigint(false)
+        while process_running(proc)
+            try
+                wait(proc)
+            catch err
+                isa(err, InterruptException) || throw(err)
+                println("Interrupting the process...")
+                kill(proc, Base.SIGINT)
+                Timer(2) do timer
+                    process_running(proc) || return
+                    println("Terminating the process...")
+                    kill(proc, Base.SIGTERM)
+                end
+                Timer(5) do timer
+                    process_running(proc) || return
+                    println("Killing the process...")
+                    kill(proc, Base.SIGKILL)
+                end
+            end
+        end
+        return proc
     end
 end
 
@@ -228,8 +252,6 @@ function make_interactive_report(report_type, ARGS=[])
         handle_child_error(proc)
         return
     elseif report_type == "rr"
-        exit_on_sigint(false)  # throw InterruptException on Ctrl-C
-        local proc
         artifact_hash = Pkg.create_artifact() do trace_dir
             proc = rr_record(cmd, ARGS; trace_dir=trace_dir)
             @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
