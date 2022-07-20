@@ -248,11 +248,11 @@ function upload_rr_trace(trace_directory)
 
     c = Channel()
     t = @async HTTP.WebSockets.open(WSS_ENDPOINT) do ws
-        write(ws, "Hello Server, if it's not too much trouble, please send me S3 credentials")
-        x = readavailable(ws)
+        HTTP.send(ws, "Hello Server, if it's not too much trouble, please send me S3 credentials")
+        x = HTTP.receive(ws)::String
         put!(c, JSON.parse(String(x))["connectionId"])
         # This will block until the user has completed the authentication flow
-        x = readavailable(ws)
+        x = HTTP.receive(ws)::String
         push!(c, JSON.parse(String(x)))
     end
     bind(c, t)
