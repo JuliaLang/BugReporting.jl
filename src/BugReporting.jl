@@ -246,7 +246,7 @@ function make_interactive_report(report_type, ARGS=[])
     error("Unknown report type: $report_type")
 end
 
-const S3_CHUNK_SIZE = 25 * 1024 * 1024 # 25 MB
+const S3_CHUNK_SIZE = 25 # MB
 
 include("sync_compat.jl")
 
@@ -291,14 +291,14 @@ function upload_rr_trace(trace_directory)
     catch err
         if err isa InterruptException
             println()
-            println("Cancel uploading the trace.")
+            println("Canceled uploading the trace.")
             return
         end
         rethrow()
     end
 
     println()
-    @info "Uploading Trace directory"
+    println("Uploading trace directory...")
 
     creds = AWS.AWSCredentials(
         s3creds["AWS_ACCESS_KEY_ID"],
@@ -311,33 +311,12 @@ function upload_rr_trace(trace_directory)
         open(`$zstdp -`, "r+")
     end
 
-    t = @async begin try
-        upload = s3_begin_multipart_upload(aws, TRACE_BUCKET, s3creds["UPLOAD_PATH"])
-        tags = Vector{String}()
-        i = 1
-        @Base.Experimental.sync begin
-            while isopen(proc)
-                buf = Vector{UInt8}(undef, S3_CHUNK_SIZE)
-                n = readbytes!(proc, buf)
-                n < S3_CHUNK_SIZE && resize!(buf, n)
-                resize!(tags, i)
-                let partno = i, buf=buf
-                    @async begin
-                        try
-                            tags[partno] = s3_upload_part(aws, upload, partno, buf)
-                        catch e
-                            close(proc)
-                            rethrow(e)
-                        end
-                    end
-                end
-                i += 1
-            end
+    t = @async begin
+        try
+            s3_multipart_upload(aws, TRACE_BUCKET, s3creds["UPLOAD_PATH"], proc, S3_CHUNK_SIZE)
+        catch e
+            Base.showerror(stderr, e)
         end
-        s3_complete_multipart_upload(aws, upload, tags)
-    catch e
-        Base.showerror(stderr, e)
-    end
     end
 
     # Start the Tar creation process, the file will be uploaded as it's created
