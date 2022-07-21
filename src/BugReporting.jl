@@ -203,7 +203,119 @@ function replay(trace_url)
 
     rr() do rr_path
         gdb() do gdb_path
-            run(`$(rr_path) replay -d $(gdb_path) $(find_latest_trace(trace_url))`)
+            cmd = `$(rr_path) replay -d $(gdb_path) $(find_latest_trace(trace_url))`
+            input = Pipe()
+            output = Pipe()
+            proc = run(pipeline(cmd; stdout=output, stderr=output, stdin=input); wait=false)
+            close(output.in)
+
+            # wait for the initial prompt
+            prompt = "(rr) "
+            header = readuntil(output, prompt)
+            println(header)
+
+            println("Looking for Julia version information...")
+            try
+                # scripting GDB like this is cumbersome... using GDB or Python script input
+                # is probably better.
+
+                println(input, "set interactive-mode off")
+                readuntil(output, prompt)
+
+                println(input, "set breakpoint pending on")
+                readuntil(output, prompt)
+
+                println(input, "break julia_init")
+                readuntil(output, prompt)
+
+                println(input, "continue")
+                contains(readuntil(output, prompt), "Breakpoint 1, julia_init") ||
+                    error("Could not continue to julia_init")
+
+                println(input, "finish")
+                readuntil(output, prompt)
+
+                println(input, "call jl_((jl_value_t*) jl_eval_string(\"Base.GIT_VERSION_INFO\"))")
+                git_version_info = readuntil(output, prompt)
+                contains(git_version_info, "Base.GitVersionInfo") ||
+                    error("Could not get git version info")
+                # VersionInfo cannot be reconstructed from its string representation,
+                # so parse it as a named tuple instead
+                git_version_info = let
+                    m = match(r"Base.GitVersionInfo\((.+)\)", git_version_info)
+                    @assert m !== nothing
+                    eval(Meta.parse("(; $(m.captures[1]) )"))
+                end
+
+                println(git_version_info)
+            catch err
+                @error "Error inspecting Julia environment" exception=(err,catch_backtrace())
+            finally
+                println(input, "set breakpoint pending off")
+                readuntil(output, prompt)
+
+                println(input, "delete")
+                readuntil(output, prompt)
+
+                println(input, "run")
+                readuntil(output, prompt)
+            end
+
+            # give interactivity back to the user
+            println(input, "set interactive-mode on")
+            # XXX: how do we support control characters properly, i.e., without handing
+            #      cases here? setting the terminal to raw allows us to capture them, but
+            #      writing codes over the pipe doesn't have gdb pick those up...
+            @sync begin
+                reader = @async begin
+                    while process_running(proc)
+                        try
+                            char = read(stdin, Char)
+                            write(input, char)
+                        catch err
+                            if isa(err, EOFError)
+                                # the user probably entered ^D
+                                break
+                            else
+                                rethrow()
+                            end
+                        end
+                    end
+
+                    # closing the input pipe _should_ cause gdb to quit
+                    close(input)
+                    # ... but in case it hung, make sure to kill it after a while
+                    Timer(5) do timer
+                        kill(proc)
+                    end
+                end
+                @async begin
+                    while process_running(proc)
+                        try
+                            char = read(output, Char)
+                            write(stdout, char)
+                        catch err
+                            if isa(err, EOFError)
+                                # the stream got closed, probably because of a quit command
+                                break
+                            elseif isa(err, InterruptException)
+                                # the user probably entered ^C
+                                kill(proc, Base.SIGINT)
+                                continue
+                            else
+                                rethrow()
+                            end
+                        end
+                    end
+                    close(output)
+
+                    # closing the output pipe doesn't have any impact on the stdin reader,
+                    # so make sure that task ends if we ended up here first
+                    if !istaskdone(reader)
+                        schedule(reader, InterruptException(); error=true)
+                    end
+                end
+            end
         end
     end
 end
