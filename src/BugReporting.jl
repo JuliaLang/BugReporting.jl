@@ -121,17 +121,16 @@ function rr_record(args...; trace_dir=nothing)
     check_rr_available()
     check_perf_event_paranoid()
 
+    new_env = copy(ENV)
+    if trace_dir !== nothing
+        new_env["_RR_TRACE_DIR"] = trace_dir
+    end
+
+    # loading GDB_jll sets PYTHONHOME via Python_jll. this only matters for replay,
+    # and shouldn't leak into the Julia environment (which may load its own Python)
+    delete!(new_env, "PYTHONHOME")
+
     rr() do rr_path
-        new_env = copy(ENV)
-        if trace_dir !== nothing
-            new_env["_RR_TRACE_DIR"] = trace_dir
-        end
-
-        # loading GDB_jll sets PYTHONHOME via Python_jll. this only matters for replay,
-        # and shouldn't leak into the Julia environment (which may load its own Python)
-        delete!(new_env, "PYTHONHOME")
-
-        # Intersperse all given arguments with spaces, then splat:
         rr_cmd = `$(rr_path) record $(global_record_flags)`
         for arg in args
             rr_cmd = `$(rr_cmd) $(arg)`
