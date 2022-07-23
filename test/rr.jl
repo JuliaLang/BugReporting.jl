@@ -55,7 +55,7 @@ using BugReporting, Test, Pkg, HTTP
 
             new_stdout_rd, new_stdout_wr = Base.redirect_stdout()
             new_stderr_rd, new_stderr_wr = Base.redirect_stderr()
-            try
+            proc = try
                 BugReporting.rr_record(
                     Base.julia_cmd(),
                     "-e",
@@ -68,6 +68,7 @@ using BugReporting, Test, Pkg, HTTP
                 close(new_stdout_wr)
                 close(new_stderr_wr)
             end
+            @test success(proc)
 
             String(read(new_stdout_rd)), String(read(new_stderr_rd))
         end
