@@ -116,7 +116,7 @@ function compress_trace(trace_directory::String, output_file::String)
     return nothing
 end
 
-function rr_record(args...; trace_dir=nothing)
+function rr_record(julia_cmd::Cmd, args...; trace_dir=nothing)
     check_rr_available()
     check_perf_event_paranoid()
 
@@ -130,12 +130,9 @@ function rr_record(args...; trace_dir=nothing)
     delete!(new_env, "PYTHONHOME")
 
     rr() do rr_path
-        rr_cmd = `$(rr_path) record $(global_record_flags)`
-        for arg in args
-            rr_cmd = `$(rr_cmd) $(arg)`
-        end
-
+        rr_cmd = `$(rr_path) record $(global_record_flags) $julia_cmd $(args...)`
         cmd = ignorestatus(setenv(rr_cmd, new_env))
+
         proc = run(cmd, stdin, stdout, stderr; wait=false)
 
         exit_on_sigint(false)
@@ -246,12 +243,12 @@ function make_interactive_report(report_type, ARGS=[])
     cmd = `$cmd --history-file=no`
 
     if report_type == "rr-local"
-        proc = rr_record(cmd, ARGS)
+        proc = rr_record(cmd, ARGS...)
         handle_child_error(proc)
         return
     elseif report_type == "rr"
         mktempdir() do trace_dir
-            proc = rr_record(cmd, ARGS; trace_dir=trace_dir)
+            proc = rr_record(cmd, ARGS...; trace_dir=trace_dir)
             @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
             rr_pack(trace_dir)
             upload_rr_trace(trace_dir)
