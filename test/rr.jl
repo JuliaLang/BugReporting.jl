@@ -55,7 +55,7 @@ using BugReporting, Test, Pkg, HTTP
 
             new_stdout_rd, new_stdout_wr = Base.redirect_stdout()
             new_stderr_rd, new_stderr_wr = Base.redirect_stderr()
-            try
+            proc = try
                 BugReporting.rr_record(
                     Base.julia_cmd(),
                     "-e",
@@ -68,6 +68,7 @@ using BugReporting, Test, Pkg, HTTP
                 close(new_stdout_wr)
                 close(new_stderr_wr)
             end
+            @test success(proc)
 
             String(read(new_stdout_rd)), String(read(new_stderr_rd))
         end
@@ -138,5 +139,13 @@ using BugReporting, Test, Pkg, HTTP
         @test isempty(stderr_lines)
 
         test_replay(temp_trace_dir)
+
+        # Test that `--bug-report` propagates the child's exit status
+        @test  success(```$(Base.julia_cmd()) --project=$(dirname(@__DIR__))
+                                              --bug-report=rr-local
+                                              --eval "exit(0)"```)
+        @test !success(```$(Base.julia_cmd()) --project=$(dirname(@__DIR__))
+                                              --bug-report=rr-local
+                                              --eval "exit(1)"```)
     end
 end
