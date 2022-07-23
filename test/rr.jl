@@ -138,5 +138,13 @@ using BugReporting, Test, Pkg, HTTP
         @test isempty(stderr_lines)
 
         test_replay(temp_trace_dir)
+
+        # Test that `--bug-report` propagates the child's exit status
+        @test  success(```$(Base.julia_cmd()) --project=$(dirname(@__DIR__))
+                                              --bug-report=rr-local
+                                              --eval "exit(0)"```)
+        @test !success(```$(Base.julia_cmd()) --project=$(dirname(@__DIR__))
+                                              --bug-report=rr-local
+                                              --eval "exit(1)"```)
     end
 end

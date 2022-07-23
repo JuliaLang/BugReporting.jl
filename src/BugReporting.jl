@@ -212,14 +212,12 @@ function replay(trace_url)
 end
 
 function handle_child_error(p::Base.Process)
-    # if the parent process is interactive, the user called `make_interactive_report`
-    # directly, so we shouldn't exit based on the child status. else, we're probably
-    # invoked through the `--bug-report` flag, so it's better to propagate the child status.
-    # If the user has requested that we ignore child status, do so
+    # if the parent process is interactive, we shouldn't exit if the child process failed.
     if isinteractive()
         return
     end
 
+    # for non-interactive sessions, likely from `--bug-report`, we want to propagate failure
     if !success(p)
         # Return the exit code if that is nonzero
         if p.exitcode != 0
@@ -231,7 +229,6 @@ function handle_child_error(p::Base.Process)
         ccall(:raise, Cint, (Cint,), p.termsignal)
     end
 end
-
 
 function make_interactive_report(report_type, ARGS=[])
     cmd = Base.julia_cmd()
