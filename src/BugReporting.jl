@@ -34,7 +34,6 @@ end
 
 # Values that are initialized in `__init__()`
 global_record_flags = String[]
-ignore_child_status = false
 
 struct InvalidPerfEventParanoidError <: Exception
     value
@@ -213,16 +212,15 @@ function replay(trace_url)
 end
 
 function handle_child_error(p::Base.Process)
+    # if the parent process is interactive, the user called `make_interactive_report`
+    # directly, so we shouldn't exit based on the child status. else, we're probably
+    # invoked through the `--bug-report` flag, so it's better to propagate the child status.
     # If the user has requested that we ignore child status, do so
-    if ignore_child_status
+    if isinteractive()
         return
     end
 
     if !success(p)
-        println("""The debugged process failed. This is to be expected: Unless you see rr errors above,
-                   the trace likely completed. Returning this status (code $(p.exitcode), signal $(p.termsignal)) to the caller.
-                   If you want Julia to proceed instead, launch with JULIA_RR_IGNORE_STATUS=true.""")
-
         # Return the exit code if that is nonzero
         if p.exitcode != 0
             exit(p.exitcode)
@@ -380,7 +378,6 @@ end
 function __init__()
     # Read in environment variable settings
     global global_record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
-    global ignore_child_status = parse(Bool, get(ENV, "JULIA_RR_IGNORE_STATUS", "false"))
 end
 
 
