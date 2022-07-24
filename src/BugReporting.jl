@@ -275,11 +275,13 @@ function replay(trace_url)
     gdb_args = ``
     if metadata !== nothing
         source_code = get_sourcecode(metadata["commit"])
-        if haskey(metadata, "comp_dir")
-            gdb_args = `$gdb_args -ex "set substitute-path $(metadata["comp_dir"]) $source_code"`
-        else
-            gdb_args = `$gdb_args -ex "directory $(joinpath(source_code, "src"))"`
-            gdb_args = `$gdb_args -ex "directory $(joinpath(source_code, "base"))"`
+        if source_code !== nothing
+            if haskey(metadata, "comp_dir")
+                gdb_args = `$gdb_args -ex "set substitute-path $(metadata["comp_dir"]) $source_code"`
+            else
+                gdb_args = `$gdb_args -ex "directory $(joinpath(source_code, "src"))"`
+                gdb_args = `$gdb_args -ex "directory $(joinpath(source_code, "base"))"`
+            end
         end
     end
 
