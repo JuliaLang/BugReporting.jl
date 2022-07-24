@@ -93,6 +93,9 @@ end
 
         # Test that Julia spat out what we expect, and nothing was on stderr
         @test occursin(msg, output.stdout)
+        if !isempty(output.stderr)
+            @error "Unexpected output on standard error:\n" * output.stderr
+        end
         @test isempty(output.stderr)
 
         # Test that we get something put into the temp trace directory
@@ -130,8 +133,8 @@ end
     mktempdir() do temp_trace_dir
         proc, output = withenv("_RR_TRACE_DIR" => temp_trace_dir) do
             cmd = ```$(Base.julia_cmd()) --project=$(dirname(@__DIR__))
-                                        --bug-report=rr-local
-                                        --eval "println(\"$(msg)\")"```
+                                         --bug-report=rr-local
+                                         --eval "println(\"$(msg)\")"```
             communicate(cmd)
         end
         @test success(proc)
@@ -141,6 +144,9 @@ end
         stderr_lines = split(output.stderr, "\n")
         filter!(stderr_lines) do line
             !contains(line, "Loading BugReporting package...") && !isempty(line)
+        end
+        if !isempty(stderr_lines)
+            @error "Unexpected output on standard error:\n" * output.stderr
         end
         @test isempty(stderr_lines)
 

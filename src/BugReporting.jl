@@ -123,13 +123,31 @@ function rr_record(julia_cmd::Cmd, args...; trace_dir=nothing)
     new_env = copy(ENV)
     if trace_dir !== nothing
         new_env["_RR_TRACE_DIR"] = trace_dir
+    elseif haskey(ENV, "_RR_TRACE_DIR")
+        trace_dir = ENV["_RR_TRACE_DIR"]
+    else
+        # find the trace dir just like rr does (see `default_rr_trace_dir`)
+        # TODO: get the trace dir by passing --print-trace-dir to `rr record`
+        #       (this requires passing a fd, which isn't straightforward in Julia)
+        dot_dir = joinpath(homedir(), ".rr")
+        xdg_dir = if haskey(ENV, "XDG_DATA_HOME")
+            joinpath(ENV["XDG_DATA_HOME"], "rr")
+        else
+            joinpath(homedir(), ".local", "share", "rr")
+        end
+        trace_dir = if !isdir(xdg_dir) && isdir(dot_dir)
+            # backwards compatibility
+            dot_dir
+        else
+            xdg_dir
+        end
     end
 
     # loading GDB_jll sets PYTHONHOME via Python_jll. this only matters for replay,
     # and shouldn't leak into the Julia environment (which may load its own Python)
     delete!(new_env, "PYTHONHOME")
 
-    rr() do rr_path
+    proc = rr() do rr_path
         rr_cmd = `$(rr_path) record $(global_record_flags) $julia_cmd $(args...)`
         cmd = ignorestatus(setenv(rr_cmd, new_env))
 
@@ -157,6 +175,20 @@ function rr_record(julia_cmd::Cmd, args...; trace_dir=nothing)
         end
         return proc
     end
+
+    # write Julia metadata
+    # NOTE: this only makes sense if we're recording the Julia version we're running now.
+    #       This is the case when using `--bug-report`, so either pass metadata from
+    #       `make_interactive_report`, or restrict `rr_record` to `Base.julia_cmd`?
+    metadata = Dict(
+        "version"   => 1,
+        "commit"    => Base.GIT_VERSION_INFO.commit
+    )
+    open(joinpath(find_latest_trace(trace_dir), "julia_metadata.json"), "w") do io
+        JSON.print(io, metadata)
+    end
+
+    return proc
 end
 
 function decompress_rr_trace(trace_file, out_dir)
@@ -200,10 +232,18 @@ function replay(trace_url)
     if !isdir(trace_url)
         error("Invalid trace location: $(trace_url)")
     end
+    trace_dir = find_latest_trace(trace_url)
+
+    # read Julia metadata
+    metadata = if ispath(joinpath(trace_dir, "julia_metadata.json"))
+        JSON.parsefile(joinpath(trace_dir, "julia_metadata.json"))
+    else
+        nothing
+    end
 
     rr() do rr_path
         gdb() do gdb_path
-            run(`$(rr_path) replay -d $(gdb_path) $(find_latest_trace(trace_url))`)
+            run(`$(rr_path) replay -d $(gdb_path) $trace_dir`)
         end
     end
 end
