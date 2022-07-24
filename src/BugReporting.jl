@@ -11,11 +11,11 @@ using Base.Filesystem: uperm
 using rr_jll
 using GDB_jll
 using Zstd_jll
-using Git_jll
 using Elfutils_jll
 using HTTP, JSON
 using AWS, AWSS3
 using Tar
+using Git
 import Downloads
 
 # https://github.com/JuliaLang/julia/pull/29411
@@ -217,27 +217,23 @@ function download_rr_trace(trace_url)
 end
 
 function get_sourcecode(commit)
-    git() do git_path
-        # core check-out
-        if ispath(joinpath(julia_checkout, "config"))
-            run(`$git_path -C $julia_checkout fetch --quiet`)
-        else
-            run(`$git_path clone --quiet --bare git@github.com:JuliaLang/julia.git $julia_checkout`)
-        end
-
-        # verify commit
-        let
-            cmd = `$git_path -C $julia_checkout rev-parse --quiet --verify $commit`
-            success(pipeline(cmd, stdout=devnull)) || return nothing
-        end
-
-        # check-out source code
-        dir = mktempdir()
-        run(`$git_path clone --quiet $julia_checkout $dir`)
-        run(`$git_path -C $dir checkout --quiet $commit`)
-        return dir
+    # core check-out
+    if ispath(joinpath(julia_checkout, "config"))
+        run(`$(git()) -C $julia_checkout fetch --quiet`)
+    else
+        println("Checking-out Julia source code, this may take a minute...")
+        run(`$(git()) clone --quiet --bare https://github.com/JuliaLang/julia.git $julia_checkout`)
     end
 
+    # verify commit
+    cmd = `$(git()) -C $julia_checkout rev-parse --quiet --verify $commit`
+    success(pipeline(cmd, stdout=devnull)) || return nothing
+
+    # check-out source code
+    dir = mktempdir()
+    run(`$(git()) clone --quiet $julia_checkout $dir`)
+    run(`$(git()) -C $dir checkout --quiet $commit`)
+    return dir
 end
 
 function replay(trace_url)
