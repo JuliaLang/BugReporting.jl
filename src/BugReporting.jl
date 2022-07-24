@@ -29,6 +29,7 @@ end
 const WSS_ENDPOINT = "wss://53ly7yebjg.execute-api.us-east-1.amazonaws.com/test"
 const GITHUB_APP_ID = "Iv1.c29a629771fe63c4"
 const TRACE_BUCKET = "julialang-dumps"
+const METADATA_VERSION = v"1"
 
 function check_rr_available()
     if !isdefined(rr_jll, :rr_path)
@@ -259,10 +260,16 @@ function replay(trace_url)
     trace_dir = find_latest_trace(trace_url)
 
     # read Julia metadata
-    metadata = if ispath(joinpath(trace_dir, "julia_metadata.json"))
-        JSON.parsefile(joinpath(trace_dir, "julia_metadata.json"))
+    if ispath(joinpath(trace_dir, "julia_metadata.json"))
+        metadata = JSON.parsefile(joinpath(trace_dir, "julia_metadata.json"))
+
+        # check metadata semver
+        metadata_version = VersionNumber(metadata["version"])
+        if metadata_version >= v"2"
+            metadata = nothing
+        end
     else
-        nothing
+        metadata = nothing
     end
 
     gdb_args = ``
@@ -326,7 +333,7 @@ function make_interactive_report(report_type, ARGS=[])
     # we know that the currently executing Julia process matches the one we'll be recording,
     # so gather some additional information and add it as metadata to the trace
     metadata = Dict(
-        "version"   => 1, # TODO: semver
+        "version"   => string(METADATA_VERSION),
         "commit"    => Base.GIT_VERSION_INFO.commit
     )
     eu_readelf() do eu_readelf_path
