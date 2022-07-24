@@ -121,7 +121,7 @@ function compress_trace(trace_directory::String, output_file::String)
     return nothing
 end
 
-function rr_record(julia_cmd::Cmd, args...; trace_dir=nothing)
+function rr_record(julia_cmd::Cmd, args...; trace_dir=nothing, metadata=nothing)
     check_rr_available()
     check_perf_event_paranoid()
 
@@ -181,46 +181,11 @@ function rr_record(julia_cmd::Cmd, args...; trace_dir=nothing)
         return proc
     end
 
-    # write Julia metadata
-    # NOTE: this only makes sense if we're recording the Julia version we're running now.
-    #       This is the case when using `--bug-report`, so either pass metadata from
-    #       `make_interactive_report`, or restrict `rr_record` to `Base.julia_cmd`?
-    metadata = Dict(
-        "version"   => 1,
-        "commit"    => Base.GIT_VERSION_INFO.commit
-    )
-    let eu_readelf_path = joinpath(BugReporting.Elfutils_jll.artifact_dir, "bin", "eu-readelf")
-        # scan our current binary's DWARF sections for the compilation directory.
-        # TODO: use `-fdebug-prefix-map` during the build instead
-        julia_path = Base.julia_cmd().exec[1]
-
-        # TODO: use libelf instead of grepping the human-readable output of readelf
-        elf_dump = read(`$eu_readelf_path --debug-dump=info $julia_path`, String)
-        comp_dir = nothing
-        source_dir = nothing
-        for line in split(elf_dump, '\n')
-            let m = match(r"comp_dir.+\"(.+)\"", line)
-                if m !== nothing
-                    comp_dir = m.captures[1]
-                    continue
-                end
-            end
-
-            let m = match(r"name.+\"main\"", line)
-                if m !== nothing
-                    if comp_dir !== nothing
-                        metadata["comp_dir"] = dirname(comp_dir)
-                    end
-                end
-            end
+    # add metadata to the trace
+    if metadata !== nothing
+        open(joinpath(find_latest_trace(trace_dir), "julia_metadata.json"), "w") do io
+            JSON.print(io, metadata)
         end
-
-        if !haskey(metadata, "comp_dir")
-            @error "Could not find the compilation directory, source paths may be incorrect during replay. Please file an issue on the BugReporting.jl repository."
-        end
-    end
-    open(joinpath(find_latest_trace(trace_dir), "julia_metadata.json"), "w") do io
-        JSON.print(io, metadata)
     end
 
     return proc
@@ -358,13 +323,50 @@ function make_interactive_report(report_type, ARGS=[])
     end
     cmd = `$cmd --history-file=no`
 
+    # we know that the currently executing Julia process matches the one we'll be recording,
+    # so gather some additional information and add it as metadata to the trace
+    metadata = Dict(
+        "version"   => 1, # TODO: semver
+        "commit"    => Base.GIT_VERSION_INFO.commit
+    )
+    let eu_readelf_path = joinpath(BugReporting.Elfutils_jll.artifact_dir, "bin", "eu-readelf")
+        # scan our current binary's DWARF sections for the compilation directory.
+        # TODO: use `-fdebug-prefix-map` during the build instead
+        julia_path = Base.julia_cmd().exec[1]
+
+        # TODO: use libelf instead of grepping the human-readable output of readelf
+        elf_dump = read(`$eu_readelf_path --debug-dump=info $julia_path`, String)
+        comp_dir = nothing
+        source_dir = nothing
+        for line in split(elf_dump, '\n')
+            let m = match(r"comp_dir.+\"(.+)\"", line)
+                if m !== nothing
+                    comp_dir = m.captures[1]
+                    continue
+                end
+            end
+
+            let m = match(r"name.+\"main\"", line)
+                if m !== nothing
+                    if comp_dir !== nothing
+                        metadata["comp_dir"] = dirname(comp_dir)
+                    end
+                end
+            end
+        end
+
+        if !haskey(metadata, "comp_dir")
+            @error "Could not find the compilation directory, source paths may be incorrect during replay. Please file an issue on the BugReporting.jl repository."
+        end
+    end
+
     if report_type == "rr-local"
-        proc = rr_record(cmd, ARGS...)
+        proc = rr_record(cmd, ARGS...; metadata=metadata)
         handle_child_error(proc)
         return
     elseif report_type == "rr"
         mktempdir() do trace_dir
-            proc = rr_record(cmd, ARGS...; trace_dir=trace_dir)
+            proc = rr_record(cmd, ARGS...; trace_dir=trace_dir), metadata=metadata
             @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
             rr_pack(trace_dir)
             upload_rr_trace(trace_dir)
