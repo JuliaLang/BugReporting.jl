@@ -9,6 +9,7 @@ using Base.Filesystem: uperm
 using rr_jll
 using GDB_jll
 using Zstd_jll
+using Elfutils_jll
 using HTTP, JSON
 using AWS, AWSS3
 using Tar
@@ -184,6 +185,36 @@ function rr_record(julia_cmd::Cmd, args...; trace_dir=nothing)
         "version"   => 1,
         "commit"    => Base.GIT_VERSION_INFO.commit
     )
+    let eu_readelf_path = joinpath(BugReporting.Elfutils_jll.artifact_dir, "bin", "eu-readelf")
+        # scan our current binary's DWARF sections for the compilation directory.
+        # TODO: use `-fdebug-prefix-map` during the build instead
+        julia_path = Base.julia_cmd().exec[1]
+
+        # TODO: use libelf instead of grepping the human-readable output of readelf
+        elf_dump = read(`$eu_readelf_path --debug-dump=info $julia_path`, String)
+        comp_dir = nothing
+        source_dir = nothing
+        for line in split(elf_dump, '\n')
+            let m = match(r"comp_dir.+\"(.+)\"", line)
+                if m !== nothing
+                    comp_dir = m.captures[1]
+                    continue
+                end
+            end
+
+            let m = match(r"name.+\"main\"", line)
+                if m !== nothing
+                    if comp_dir !== nothing
+                        metadata["comp_dir"] = dirname(comp_dir)
+                    end
+                end
+            end
+        end
+
+        if !haskey(metadata, "comp_dir")
+            @error "Could not find the compilation directory, source paths may be incorrect during replay. Please file an issue on the BugReporting.jl repository."
+        end
+    end
     open(joinpath(find_latest_trace(trace_dir), "julia_metadata.json"), "w") do io
         JSON.print(io, metadata)
     end
