@@ -329,7 +329,7 @@ function make_interactive_report(report_type, ARGS=[])
         "version"   => 1, # TODO: semver
         "commit"    => Base.GIT_VERSION_INFO.commit
     )
-    let eu_readelf_path = joinpath(BugReporting.Elfutils_jll.artifact_dir, "bin", "eu-readelf")
+    eu_readelf() do eu_readelf_path
         # scan our current binary's DWARF sections for the compilation directory.
         # TODO: use `-fdebug-prefix-map` during the build instead
         julia_path = Base.julia_cmd().exec[1]
