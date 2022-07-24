@@ -1,5 +1,7 @@
 module BugReporting
 
+using Scratch
+
 # Use README as the docstring of the module:
 @doc read(joinpath(dirname(@__DIR__), "README.md"), String) BugReporting
 
@@ -9,6 +11,7 @@ using Base.Filesystem: uperm
 using rr_jll
 using GDB_jll
 using Zstd_jll
+using Git_jll
 using Elfutils_jll
 using HTTP, JSON
 using AWS, AWSS3
@@ -35,6 +38,7 @@ end
 
 # Values that are initialized in `__init__()`
 global_record_flags = String[]
+julia_checkout = ""
 
 struct InvalidPerfEventParanoidError <: Exception
     value
@@ -246,6 +250,30 @@ function download_rr_trace(trace_url)
     end
 end
 
+function get_sourcecode(commit)
+    git() do git_path
+        # core check-out
+        if ispath(joinpath(julia_checkout, "config"))
+            run(`$git_path -C $julia_checkout fetch --quiet`)
+        else
+            run(`$git_path clone --quiet --bare git@github.com:JuliaLang/julia.git $julia_checkout`)
+        end
+
+        # verify commit
+        let
+            cmd = `$git_path -C $julia_checkout rev-parse --quiet --verify $commit`
+            success(pipeline(cmd, stdout=devnull)) || return nothing
+        end
+
+        # check-out source code
+        dir = mktempdir()
+        run(`$git_path clone --quiet $julia_checkout $dir`)
+        run(`$git_path -C $dir checkout --quiet $commit`)
+        return dir
+    end
+
+end
+
 function replay(trace_url)
     if startswith(trace_url, "s3://")
         trace_url = string("https://s3.amazonaws.com/julialang-dumps/", trace_url[6:end])
@@ -272,11 +300,28 @@ function replay(trace_url)
         nothing
     end
 
-    rr() do rr_path
-        gdb() do gdb_path
-            run(`$(rr_path) replay -d $(gdb_path) $trace_dir`)
+    gdb_args = ``
+    if metadata !== nothing
+        source_code = get_sourcecode(metadata["commit"])
+        if haskey(metadata, "comp_dir")
+            gdb_args = `$gdb_args -ex "set substitute-path $(metadata["comp_dir"]) $source_code"`
+        else
+            gdb_args = `$gdb_args -ex "directory $(joinpath(source_code, "src"))"`
+            gdb_args = `$gdb_args -ex "directory $(joinpath(source_code, "base"))"`
         end
     end
+
+    proc = rr() do rr_path
+        gdb() do gdb_path
+            run(`$(rr_path) replay -d $(gdb_path) $trace_dir -- $gdb_args`)
+        end
+    end
+
+    if @isdefined(source_code) && source_code !== nothing
+        rm(source_code; recursive=true)
+    end
+
+    return proc
 end
 
 function handle_child_error(p::Base.Process)
@@ -443,6 +488,8 @@ end
 function __init__()
     # Read in environment variable settings
     global global_record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
+
+    global julia_checkout = @get_scratch!("julia")
 end
 
 
