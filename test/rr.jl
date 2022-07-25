@@ -1,26 +1,19 @@
 using BugReporting, Test, Pkg, HTTP
 
 # helper functions to run a command or a block of code while capturing all output
-function communicate(f::Function, input=nothing)
+function communicate(f::Function)
     old_stdout = Base.stdout
     old_stderr = Base.stderr
-    old_stdin = Base.stdin
 
     new_stdout_rd, new_stdout_wr = Base.redirect_stdout()
     new_stderr_rd, new_stderr_wr = Base.redirect_stderr()
-    new_stdin_rd, new_stdin_wr = Base.redirect_stdin()
     rv = try
-        if input !== nothing
-            write(new_stdin_wr, input)
-        end
         f()
     finally
         Base.redirect_stdout(old_stdout)
         Base.redirect_stderr(old_stderr)
-        Base.redirect_stdin(old_stdin)
         close(new_stdout_wr)
         close(new_stderr_wr)
-        close(new_stdin_rd)
     end
 
     return rv, (
@@ -28,21 +21,16 @@ function communicate(f::Function, input=nothing)
         stderr = String(read(new_stderr_rd))
     )
 end
-function communicate(cmd::Cmd, input=nothing)
-    inp = Pipe()
+function communicate(cmd::Cmd)
     out = Pipe()
     err = Pipe()
 
-    proc = run(pipeline(cmd, stdin=inp, stdout=out, stderr=err), wait=false)
+    proc = run(pipeline(cmd, stdout=out, stderr=err), wait=false)
     close(out.in)
     close(err.in)
 
     stdout = @async String(read(out))
     stderr = @async String(read(err))
-    if input !== nothing
-        write(proc, input)
-    end
-    close(inp)
     wait(proc)
     return proc, (
         stdout = fetch(stdout),
@@ -61,22 +49,18 @@ end
     msg = "Time is precious, spend it wisely"
     temporary_home = mktempdir()
     function test_replay(path)
-        # Redirect `HOME` to a directory that we know doesn't contain a `.gdbinit` file,
-        # as that can screw up the `isempty(rr_stderr)` test below
-        withenv("HOME" => temporary_home) do
-            # send in `continue` immediately to let it run
-            _, output = communicate("continue\nquit\ny") do
-                BugReporting.replay(path)
-            end
-
-            if !isempty(output.stderr)
-                @warn """There were warnings during replay:
-                            $(output.stderr)"""
-            end
-
-            # Test that Julia spat out what we expect, still.
-            @test occursin(msg, output.stdout)
+        # send in `continue` immediately to let it run
+        _, output = communicate() do
+            BugReporting.replay(path; gdb_flags=`-nh -batch`, gdb_commands=["continue", "quit"])
         end
+
+        if !isempty(output.stderr)
+            @warn """There were warnings during replay:
+                        $(output.stderr)"""
+        end
+
+        # Test that Julia spat out what we expect, still.
+        @test occursin(msg, output.stdout)
     end
 
     # Test that we can create a replay
@@ -93,6 +77,9 @@ end
 
         # Test that Julia spat out what we expect, and nothing was on stderr
         @test occursin(msg, output.stdout)
+        if !isempty(output.stderr)
+            @error "Unexpected output on standard error:\n" * output.stderr
+        end
         @test isempty(output.stderr)
 
         # Test that we get something put into the temp trace directory
@@ -130,8 +117,8 @@ end
     mktempdir() do temp_trace_dir
         proc, output = withenv("_RR_TRACE_DIR" => temp_trace_dir) do
             cmd = ```$(Base.julia_cmd()) --project=$(dirname(@__DIR__))
-                                        --bug-report=rr-local
-                                        --eval "println(\"$(msg)\")"```
+                                         --bug-report=rr-local
+                                         --eval "println(\"$(msg)\")"```
             communicate(cmd)
         end
         @test success(proc)
@@ -141,6 +128,9 @@ end
         stderr_lines = split(output.stderr, "\n")
         filter!(stderr_lines) do line
             !contains(line, "Loading BugReporting package...") && !isempty(line)
+        end
+        if !isempty(stderr_lines)
+            @error "Unexpected output on standard error:\n" * output.stderr
         end
         @test isempty(stderr_lines)
 
@@ -153,5 +143,31 @@ end
         @test !success(```$(Base.julia_cmd()) --project=$(dirname(@__DIR__))
                                               --bug-report=rr-local
                                               --eval "exit(1)"```)
+    end
+
+    # Test that Julia source code is made available for traces
+    mktempdir() do temp_trace_dir
+        proc, _ = withenv("_RR_TRACE_DIR" => temp_trace_dir) do
+            cmd = ```$(Base.julia_cmd()) --project=$(dirname(@__DIR__))
+                                         --bug-report=rr-local
+                                         --eval "ccall(:jl_breakpoint, Cvoid, (Any,), 42)"```
+            communicate(cmd)
+        end
+        @test success(proc)
+
+        proc, output = communicate() do
+            BugReporting.replay(temp_trace_dir; gdb_flags=`-nh -batch`, gdb_commands=[
+                    "continue",
+                    "break jl_breakpoint",
+                    "reverse-continue",
+                    "info source",
+                    "quit"
+                ])
+        end
+        @test success(proc)
+
+        @test contains(output.stdout, "Current source file is")
+        @test contains(output.stdout, "Located in")
+        @test contains(output.stdout, r"Contains \d+ lines")
     end
 end

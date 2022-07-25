@@ -1,5 +1,7 @@
 module BugReporting
 
+using Scratch
+
 # Use README as the docstring of the module:
 @doc read(joinpath(dirname(@__DIR__), "README.md"), String) BugReporting
 
@@ -9,9 +11,11 @@ using Base.Filesystem: uperm
 using rr_jll
 using GDB_jll
 using Zstd_jll
+using Elfutils_jll
 using HTTP, JSON
 using AWS, AWSS3
 using Tar
+using Git
 import Downloads
 
 # https://github.com/JuliaLang/julia/pull/29411
@@ -25,6 +29,7 @@ end
 const WSS_ENDPOINT = "wss://53ly7yebjg.execute-api.us-east-1.amazonaws.com/test"
 const GITHUB_APP_ID = "Iv1.c29a629771fe63c4"
 const TRACE_BUCKET = "julialang-dumps"
+const METADATA_VERSION = v"1"
 
 function check_rr_available()
     if !isdefined(rr_jll, :rr_path)
@@ -34,6 +39,7 @@ end
 
 # Values that are initialized in `__init__()`
 global_record_flags = String[]
+julia_checkout = ""
 
 struct InvalidPerfEventParanoidError <: Exception
     value
@@ -116,20 +122,38 @@ function compress_trace(trace_directory::String, output_file::String)
     return nothing
 end
 
-function rr_record(julia_cmd::Cmd, args...; trace_dir=nothing)
+function rr_record(julia_cmd::Cmd, args...; trace_dir=nothing, metadata=nothing)
     check_rr_available()
     check_perf_event_paranoid()
 
     new_env = copy(ENV)
     if trace_dir !== nothing
         new_env["_RR_TRACE_DIR"] = trace_dir
+    elseif haskey(ENV, "_RR_TRACE_DIR")
+        trace_dir = ENV["_RR_TRACE_DIR"]
+    else
+        # find the trace dir just like rr does (see `default_rr_trace_dir`)
+        # TODO: get the trace dir by passing --print-trace-dir to `rr record`
+        #       (this requires passing a fd, which isn't straightforward in Julia)
+        dot_dir = joinpath(homedir(), ".rr")
+        xdg_dir = if haskey(ENV, "XDG_DATA_HOME")
+            joinpath(ENV["XDG_DATA_HOME"], "rr")
+        else
+            joinpath(homedir(), ".local", "share", "rr")
+        end
+        trace_dir = if !isdir(xdg_dir) && isdir(dot_dir)
+            # backwards compatibility
+            dot_dir
+        else
+            xdg_dir
+        end
     end
 
     # loading GDB_jll sets PYTHONHOME via Python_jll. this only matters for replay,
     # and shouldn't leak into the Julia environment (which may load its own Python)
     delete!(new_env, "PYTHONHOME")
 
-    rr() do rr_path
+    proc = rr() do rr_path
         rr_cmd = `$(rr_path) record $(global_record_flags) $julia_cmd $(args...)`
         cmd = ignorestatus(setenv(rr_cmd, new_env))
 
@@ -157,6 +181,15 @@ function rr_record(julia_cmd::Cmd, args...; trace_dir=nothing)
         end
         return proc
     end
+
+    # add metadata to the trace
+    if metadata !== nothing
+        open(joinpath(find_latest_trace(trace_dir), "julia_metadata.json"), "w") do io
+            JSON.print(io, metadata)
+        end
+    end
+
+    return proc
 end
 
 function decompress_rr_trace(trace_file, out_dir)
@@ -183,7 +216,27 @@ function download_rr_trace(trace_url)
     end
 end
 
-function replay(trace_url)
+function get_sourcecode(commit)
+    # core check-out
+    if ispath(joinpath(julia_checkout, "config"))
+        run(`$(git()) -C $julia_checkout fetch --quiet`)
+    else
+        println("Checking-out Julia source code, this may take a minute...")
+        run(`$(git()) clone --quiet --bare https://github.com/JuliaLang/julia.git $julia_checkout`)
+    end
+
+    # verify commit
+    cmd = `$(git()) -C $julia_checkout rev-parse --quiet --verify $commit`
+    success(pipeline(cmd, stdout=devnull)) || return nothing
+
+    # check-out source code
+    dir = mktempdir()
+    run(`$(git()) clone --quiet $julia_checkout $dir`)
+    run(`$(git()) -C $dir checkout --quiet $commit`)
+    return dir
+end
+
+function replay(trace_url; gdb_commands=[], gdb_flags=``)
     if startswith(trace_url, "s3://")
         trace_url = string("https://s3.amazonaws.com/julialang-dumps/", trace_url[6:end])
     end
@@ -200,12 +253,50 @@ function replay(trace_url)
     if !isdir(trace_url)
         error("Invalid trace location: $(trace_url)")
     end
+    trace_dir = find_latest_trace(trace_url)
 
-    rr() do rr_path
-        gdb() do gdb_path
-            run(`$(rr_path) replay -d $(gdb_path) $(find_latest_trace(trace_url))`)
+    # read Julia-specific metadata from the trace
+    if ispath(joinpath(trace_dir, "julia_metadata.json"))
+        metadata = JSON.parsefile(joinpath(trace_dir, "julia_metadata.json"))
+
+        # check metadata semver
+        metadata_version = VersionNumber(metadata["version"])
+        if metadata_version >= v"2"
+            metadata = nothing
+        end
+    else
+        metadata = nothing
+    end
+
+    gdb_args = `$gdb_flags`
+    if metadata !== nothing
+        source_code = get_sourcecode(metadata["commit"])
+        if source_code !== nothing
+            if haskey(metadata, "comp_dir")
+                gdb_args = `$gdb_args -ex "set substitute-path $(metadata["comp_dir"]) $source_code"`
+            else
+                gdb_args = `$gdb_args -ex "directory $(joinpath(source_code, "src"))"`
+                gdb_args = `$gdb_args -ex "directory $(joinpath(source_code, "base"))"`
+            end
+        else
+            @warn "Could not find the source code for Julia commit $commit."
         end
     end
+    for gdb_command in gdb_commands
+        gdb_args = `$gdb_args -ex "$gdb_command"`
+    end
+
+    proc = rr() do rr_path
+        gdb() do gdb_path
+            run(`$(rr_path) replay -d $(gdb_path) $trace_dir -- $gdb_args`)
+        end
+    end
+
+    if @isdefined(source_code) && source_code !== nothing
+        rm(source_code; recursive=true)
+    end
+
+    return proc
 end
 
 function handle_child_error(p::Base.Process)
@@ -227,7 +318,42 @@ function handle_child_error(p::Base.Process)
     end
 end
 
+function read_comp_dir(binary_path)
+    # TODO: use libelf instead of grepping the human-readable output of readelf
+    elf_dump = eu_readelf() do eu_readelf_path
+        read(`$eu_readelf_path --debug-dump=info $binary_path`, String)
+    end
+
+    current_comp_dir = nothing
+    for line in split(elf_dump, '\n')
+        # scan for DW_AT_comp_dir tags...
+        let m = match(r"comp_dir.+\"(.+)\"", line)
+            if m !== nothing
+                current_comp_dir = m.captures[1]
+                continue
+            end
+        end
+
+        # ... return the one where DW_AT_name==main
+        let m = match(r"name.+\"main\"", line)
+            if m !== nothing
+                if current_comp_dir !== nothing
+                    return dirname(current_comp_dir)
+                end
+            end
+        end
+    end
+
+    return
+end
+
 function make_interactive_report(report_type, ARGS=[])
+    if report_type == "help"
+        show(stdout, "text/plain", @doc(BugReporting))
+        println()
+        return
+    end
+
     cmd = Base.julia_cmd()
     if Base.JLOptions().project != C_NULL
         # --project is not included in julia_cmd
@@ -242,25 +368,36 @@ function make_interactive_report(report_type, ARGS=[])
     end
     cmd = `$cmd --history-file=no`
 
+    # we know that the currently executing Julia process matches the one we'll be recording,
+    # so gather some additional information and add it as metadata to the trace
+    metadata = Dict(
+        "version"   => string(METADATA_VERSION),
+        "commit"    => Base.GIT_VERSION_INFO.commit
+    )
+    # TODO: use `-fdebug-prefix-map` during the build instead
+    comp_dir = read_comp_dir(Base.julia_cmd().exec[1])
+    if comp_dir !== nothing
+        metadata["comp_dir"] = comp_dir
+    else
+        @error "Could not find the compilation directory, source paths may be incorrect during replay. Please file an issue on the BugReporting.jl repository."
+    end
+
     if report_type == "rr-local"
-        proc = rr_record(cmd, ARGS...)
+        proc = rr_record(cmd, ARGS...; metadata=metadata)
         handle_child_error(proc)
         return
     elseif report_type == "rr"
         mktempdir() do trace_dir
-            proc = rr_record(cmd, ARGS...; trace_dir=trace_dir)
+            proc = rr_record(cmd, ARGS...; trace_dir=trace_dir), metadata=metadata
             @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
             rr_pack(trace_dir)
             upload_rr_trace(trace_dir)
         end
         handle_child_error(proc)
         return
-    elseif report_type == "help"
-        show(stdout, "text/plain", @doc(BugReporting))
-        println()
-        return
+    else
+        error("Unknown report type: $report_type")
     end
-    error("Unknown report type: $report_type")
 end
 
 const S3_CHUNK_SIZE = 25 # MB
@@ -368,10 +505,11 @@ function upload_rr_trace(trace_directory)
     println("Uploaded to https://s3.amazonaws.com/$TRACE_BUCKET/$(s3creds["UPLOAD_PATH"])")
 end
 
-
 function __init__()
     # Read in environment variable settings
     global global_record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
+
+    global julia_checkout = @get_scratch!("julia")
 end
 
 
