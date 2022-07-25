@@ -106,7 +106,6 @@ end
                 HTTP.setstatus(http, 200)
                 HTTP.startwrite(http)
                 write(http, read(tarzst_path))
-                HTTP.closewrite(http)
             end
             test_replay("http://127.0.0.1:$port")
             close(server)
