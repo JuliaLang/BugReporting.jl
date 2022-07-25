@@ -49,22 +49,18 @@ end
     msg = "Time is precious, spend it wisely"
     temporary_home = mktempdir()
     function test_replay(path)
-        # Redirect `HOME` to a directory that we know doesn't contain a `.gdbinit` file,
-        # as that can screw up the `isempty(stderr)` test below
-        withenv("HOME" => temporary_home) do
-            # send in `continue` immediately to let it run
-            _, output = communicate() do
-                BugReporting.replay(path, ["continue", "quit"])
-            end
-
-            if !isempty(output.stderr)
-                @warn """There were warnings during replay:
-                            $(output.stderr)"""
-            end
-
-            # Test that Julia spat out what we expect, still.
-            @test occursin(msg, output.stdout)
+        # send in `continue` immediately to let it run
+        _, output = communicate() do
+            BugReporting.replay(path; gdb_flags=`-nh -batch`, gdb_commands=["continue", "quit"])
         end
+
+        if !isempty(output.stderr)
+            @warn """There were warnings during replay:
+                        $(output.stderr)"""
+        end
+
+        # Test that Julia spat out what we expect, still.
+        @test occursin(msg, output.stdout)
     end
 
     # Test that we can create a replay

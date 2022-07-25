@@ -236,7 +236,7 @@ function get_sourcecode(commit)
     return dir
 end
 
-function replay(trace_url, gdb_commands=[])
+function replay(trace_url; gdb_commands=[], gdb_flags=``)
     if startswith(trace_url, "s3://")
         trace_url = string("https://s3.amazonaws.com/julialang-dumps/", trace_url[6:end])
     end
@@ -268,7 +268,7 @@ function replay(trace_url, gdb_commands=[])
         metadata = nothing
     end
 
-    gdb_args = ``
+    gdb_args = `$gdb_flags`
     if metadata !== nothing
         source_code = get_sourcecode(metadata["commit"])
         if source_code !== nothing
