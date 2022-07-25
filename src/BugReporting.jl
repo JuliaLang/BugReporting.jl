@@ -530,7 +530,9 @@ function upload_rr_trace(trace_directory)
 end
 
 function __init__()
-    global default_rr_record_flags = `$(split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false))`
+    if haskey(ENV, "JULIA_RR_RECORD_ARGS")
+        global default_rr_record_flags = eval(:(@cmd($(ENV["JULIA_RR_RECORD_ARGS"]))))
+    end
 
     global julia_checkout = @get_scratch!("julia")
 end
