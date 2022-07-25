@@ -236,7 +236,7 @@ function get_sourcecode(commit)
     return dir
 end
 
-function replay(trace_url)
+function replay(trace_url, gdb_commands=[])
     if startswith(trace_url, "s3://")
         trace_url = string("https://s3.amazonaws.com/julialang-dumps/", trace_url[6:end])
     end
@@ -281,6 +281,9 @@ function replay(trace_url)
         else
             @warn "Could not find the source code for Julia commit $commit."
         end
+    end
+    for gdb_command in gdb_commands
+        gdb_args = `$gdb_args -ex "$gdb_command"`
     end
 
     proc = rr() do rr_path

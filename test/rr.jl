@@ -1,26 +1,19 @@
 using BugReporting, Test, Pkg, HTTP
 
 # helper functions to run a command or a block of code while capturing all output
-function communicate(f::Function, input=nothing)
+function communicate(f::Function)
     old_stdout = Base.stdout
     old_stderr = Base.stderr
-    old_stdin = Base.stdin
 
     new_stdout_rd, new_stdout_wr = Base.redirect_stdout()
     new_stderr_rd, new_stderr_wr = Base.redirect_stderr()
-    new_stdin_rd, new_stdin_wr = Base.redirect_stdin()
     rv = try
-        if input !== nothing
-            write(new_stdin_wr, input)
-        end
         f()
     finally
         Base.redirect_stdout(old_stdout)
         Base.redirect_stderr(old_stderr)
-        Base.redirect_stdin(old_stdin)
         close(new_stdout_wr)
         close(new_stderr_wr)
-        close(new_stdin_rd)
     end
 
     return rv, (
@@ -28,21 +21,16 @@ function communicate(f::Function, input=nothing)
         stderr = String(read(new_stderr_rd))
     )
 end
-function communicate(cmd::Cmd, input=nothing)
-    inp = Pipe()
+function communicate(cmd::Cmd)
     out = Pipe()
     err = Pipe()
 
-    proc = run(pipeline(cmd, stdin=inp, stdout=out, stderr=err), wait=false)
+    proc = run(pipeline(cmd, stdout=out, stderr=err), wait=false)
     close(out.in)
     close(err.in)
 
     stdout = @async String(read(out))
     stderr = @async String(read(err))
-    if input !== nothing
-        write(proc, input)
-    end
-    close(inp)
     wait(proc)
     return proc, (
         stdout = fetch(stdout),
@@ -62,11 +50,11 @@ end
     temporary_home = mktempdir()
     function test_replay(path)
         # Redirect `HOME` to a directory that we know doesn't contain a `.gdbinit` file,
-        # as that can screw up the `isempty(rr_stderr)` test below
+        # as that can screw up the `isempty(stderr)` test below
         withenv("HOME" => temporary_home) do
             # send in `continue` immediately to let it run
-            _, output = communicate("continue\nquit\ny") do
-                BugReporting.replay(path)
+            _, output = communicate() do
+                BugReporting.replay(path, ["continue", "quit"])
             end
 
             if !isempty(output.stderr)
