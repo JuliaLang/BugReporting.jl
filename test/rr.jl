@@ -1,4 +1,4 @@
-using BugReporting, Test, Pkg, HTTP
+using Pkg, HTTP
 
 # helper functions to run a command or a block of code while capturing all output
 function communicate(f::Function)

@@ -1,8 +1,4 @@
-module BugReportingUnitTests
-
-using BugReporting:
-    check_perf_event_paranoid, InvalidPerfEventParanoidError
-using Test
+using BugReporting: check_perf_event_paranoid, InvalidPerfEventParanoidError
 
 @testset "check_perf_event_paranoid" begin
     function check(value, rr_flags=``)
@@ -33,5 +29,3 @@ using Test
     msg = sprint(showerror, err)
     @test contains(msg, "rr needs /proc/sys/kernel/perf_event_paranoid <= 1, but it is 2")
 end
-
-end  # module
