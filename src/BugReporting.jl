@@ -255,7 +255,7 @@ function replay(trace_url)
     end
     trace_dir = find_latest_trace(trace_url)
 
-    # read Julia metadata
+    # read Julia-specific metadata from the trace
     if ispath(joinpath(trace_dir, "julia_metadata.json"))
         metadata = JSON.parsefile(joinpath(trace_dir, "julia_metadata.json"))
 
@@ -278,6 +278,8 @@ function replay(trace_url)
                 gdb_args = `$gdb_args -ex "directory $(joinpath(source_code, "src"))"`
                 gdb_args = `$gdb_args -ex "directory $(joinpath(source_code, "base"))"`
             end
+        else
+            @warn "Could not find the source code for Julia commit $commit."
         end
     end
 
@@ -313,7 +315,42 @@ function handle_child_error(p::Base.Process)
     end
 end
 
+function read_comp_dir(binary_path)
+    # TODO: use libelf instead of grepping the human-readable output of readelf
+    elf_dump = eu_readelf() do eu_readelf_path
+        read(`$eu_readelf_path --debug-dump=info $binary_path`, String)
+    end
+
+    current_comp_dir = nothing
+    for line in split(elf_dump, '\n')
+        # scan for DW_AT_comp_dir tags...
+        let m = match(r"comp_dir.+\"(.+)\"", line)
+            if m !== nothing
+                current_comp_dir = m.captures[1]
+                continue
+            end
+        end
+
+        # ... return the one where DW_AT_name==main
+        let m = match(r"name.+\"main\"", line)
+            if m !== nothing
+                if current_comp_dir !== nothing
+                    return dirname(current_comp_dir)
+                end
+            end
+        end
+    end
+
+    return
+end
+
 function make_interactive_report(report_type, ARGS=[])
+    if report_type == "help"
+        show(stdout, "text/plain", @doc(BugReporting))
+        println()
+        return
+    end
+
     cmd = Base.julia_cmd()
     if Base.JLOptions().project != C_NULL
         # --project is not included in julia_cmd
@@ -334,35 +371,12 @@ function make_interactive_report(report_type, ARGS=[])
         "version"   => string(METADATA_VERSION),
         "commit"    => Base.GIT_VERSION_INFO.commit
     )
-    eu_readelf() do eu_readelf_path
-        # scan our current binary's DWARF sections for the compilation directory.
-        # TODO: use `-fdebug-prefix-map` during the build instead
-        julia_path = Base.julia_cmd().exec[1]
-
-        # TODO: use libelf instead of grepping the human-readable output of readelf
-        elf_dump = read(`$eu_readelf_path --debug-dump=info $julia_path`, String)
-        comp_dir = nothing
-        source_dir = nothing
-        for line in split(elf_dump, '\n')
-            let m = match(r"comp_dir.+\"(.+)\"", line)
-                if m !== nothing
-                    comp_dir = m.captures[1]
-                    continue
-                end
-            end
-
-            let m = match(r"name.+\"main\"", line)
-                if m !== nothing
-                    if comp_dir !== nothing
-                        metadata["comp_dir"] = dirname(comp_dir)
-                    end
-                end
-            end
-        end
-
-        if !haskey(metadata, "comp_dir")
-            @error "Could not find the compilation directory, source paths may be incorrect during replay. Please file an issue on the BugReporting.jl repository."
-        end
+    # TODO: use `-fdebug-prefix-map` during the build instead
+    comp_dir = read_comp_dir(Base.julia_cmd().exec[1])
+    if comp_dir !== nothing
+        metadata["comp_dir"] = comp_dir
+    else
+        @error "Could not find the compilation directory, source paths may be incorrect during replay. Please file an issue on the BugReporting.jl repository."
     end
 
     if report_type == "rr-local"
@@ -378,12 +392,9 @@ function make_interactive_report(report_type, ARGS=[])
         end
         handle_child_error(proc)
         return
-    elseif report_type == "help"
-        show(stdout, "text/plain", @doc(BugReporting))
-        println()
-        return
+    else
+        error("Unknown report type: $report_type")
     end
-    error("Unknown report type: $report_type")
 end
 
 const S3_CHUNK_SIZE = 25 # MB
@@ -490,7 +501,6 @@ function upload_rr_trace(trace_directory)
     wait(t)
     println("Uploaded to https://s3.amazonaws.com/$TRACE_BUCKET/$(s3creds["UPLOAD_PATH"])")
 end
-
 
 function __init__()
     # Read in environment variable settings
