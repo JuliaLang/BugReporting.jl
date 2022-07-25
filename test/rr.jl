@@ -1,4 +1,4 @@
-using BugReporting, Test, Pkg, HTTP
+using Pkg, HTTP
 
 # helper functions to run a command or a block of code while capturing all output
 function communicate(f::Function)
@@ -168,5 +168,30 @@ end
         @test contains(output.stdout, "Current source file is")
         @test contains(output.stdout, "Located in")
         @test contains(output.stdout, r"Contains \d+ lines")
+    end
+
+    # Test that we can set a timeout
+    mktempdir() do temp_trace_dir
+        t0 = time()
+        proc, output = withenv("_RR_TRACE_DIR" => temp_trace_dir) do
+            cmd = ```$(Base.julia_cmd()) --project=$(dirname(@__DIR__))
+                                         --bug-report=rr-local,timeout=2
+                                         --eval "println(\"Starting sleep\"); sleep(60)"```
+            communicate(cmd)
+        end
+        @test !success(proc)
+        t1 = time()
+        @test t1-t0 < 30
+        @test contains(output.stdout, "Starting sleep")
+
+        # the recording should be valid, despite having been killed due to a timeout
+        proc, output = communicate() do
+            BugReporting.replay(temp_trace_dir; gdb_flags=`-nh -batch`, gdb_commands=[
+                    "continue",
+                    "quit"
+                ])
+        end
+        @test success(proc)
+        @test contains(output.stdout, "Starting sleep")
     end
 end
