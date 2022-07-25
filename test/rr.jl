@@ -144,4 +144,30 @@ end
                                               --bug-report=rr-local
                                               --eval "exit(1)"```)
     end
+
+    # Test that Julia source code is made available for traces
+    mktempdir() do temp_trace_dir
+        proc, _ = withenv("_RR_TRACE_DIR" => temp_trace_dir) do
+            cmd = ```$(Base.julia_cmd()) --project=$(dirname(@__DIR__))
+                                         --bug-report=rr-local
+                                         --eval "ccall(:jl_breakpoint, Cvoid, (Any,), 42)"```
+            communicate(cmd)
+        end
+        @test success(proc)
+
+        proc, output = communicate() do
+            BugReporting.replay(temp_trace_dir; gdb_flags=`-nh -batch`, gdb_commands=[
+                    "continue",
+                    "break jl_breakpoint",
+                    "reverse-continue",
+                    "info source",
+                    "quit"
+                ])
+        end
+        @test success(proc)
+
+        @test contains(output.stdout, "Current source file is")
+        @test contains(output.stdout, "Located in")
+        @test contains(output.stdout, r"Contains \d+ lines")
+    end
 end
