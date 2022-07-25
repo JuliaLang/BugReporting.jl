@@ -81,6 +81,26 @@ function collect_inner_traces(trace_directory)
     return unique(realpath.(traces))
 end
 
+# find the trace dir just like rr doesn
+function default_rr_trace_dir()
+    if haskey(ENV, "_RR_TRACE_DIR")
+        ENV["_RR_TRACE_DIR"]
+    else
+        dot_dir = joinpath(homedir(), ".rr")
+        xdg_dir = if haskey(ENV, "XDG_DATA_HOME")
+            joinpath(ENV["XDG_DATA_HOME"], "rr")
+        else
+            joinpath(homedir(), ".local", "share", "rr")
+        end
+        if !isdir(xdg_dir) && isdir(dot_dir)
+            # backwards compatibility
+            dot_dir
+        else
+            xdg_dir
+        end
+    end
+end
+
 function find_latest_trace(trace_directory)
     # What _RR_TRACE_DIR calls a "trace directory" is not what `rr pack` calls a "trace directory"
     # This function allows us to normalize to the inner "latest-trace" directory, if necessary.
@@ -123,35 +143,15 @@ function compress_trace(trace_directory::String, output_file::String)
 end
 
 function rr_record(julia_cmd::Cmd, julia_args...; rr_flags=default_rr_record_flags,
-                   trace_dir=nothing, metadata=nothing, timeout=0)
+                   trace_dir=default_rr_trace_dir(), metadata=nothing, timeout=0)
     check_rr_available()
     check_perf_event_paranoid(; rr_flags=rr_flags)
 
     new_env = copy(ENV)
-    if trace_dir !== nothing
-        new_env["_RR_TRACE_DIR"] = trace_dir
-    elseif haskey(ENV, "_RR_TRACE_DIR")
-        trace_dir = ENV["_RR_TRACE_DIR"]
-    else
-        # find the trace dir just like rr does (see `default_rr_trace_dir`)
-        # TODO: get the trace dir by passing --print-trace-dir to `rr record`
-        #       (this requires passing a fd, which isn't straightforward in Julia)
-        dot_dir = joinpath(homedir(), ".rr")
-        xdg_dir = if haskey(ENV, "XDG_DATA_HOME")
-            joinpath(ENV["XDG_DATA_HOME"], "rr")
-        else
-            joinpath(homedir(), ".local", "share", "rr")
-        end
-        trace_dir = if !isdir(xdg_dir) && isdir(dot_dir)
-            # backwards compatibility
-            dot_dir
-        else
-            xdg_dir
-        end
-    end
+    new_env["_RR_TRACE_DIR"] = trace_dir
 
-    # loading GDB_jll sets PYTHONHOME via Python_jll. this only matters for replay,
-    # and shouldn't leak into the Julia environment (which may load its own Python)
+    # loading GDB_jll sets PYTHONHOME through Python_jll. this only matters for replay,
+    # and shouldn't leak into the record environment (where we may load another Python)
     delete!(new_env, "PYTHONHOME")
 
     proc = rr() do rr_path
@@ -245,7 +245,7 @@ function get_sourcecode(commit)
     return dir
 end
 
-function replay(trace_url; gdb_commands=[], gdb_flags=``)
+function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``)
     if startswith(trace_url, "s3://")
         trace_url = string("https://s3.amazonaws.com/julialang-dumps/", trace_url[6:end])
     end
