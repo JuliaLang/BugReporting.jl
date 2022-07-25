@@ -1,9 +1,21 @@
-# BugReporting
+# BugReporting.jl
 
-This is a WIP to simplify bug reporting for julia by enabling users to easily
-upload rr traces (and in the future potentially other report types).
+This package implements Julia's `--bug-report` flag, simplyfing bug reporting by enabling
+users to easily generate and upload reports to help developers fix bugs.
 
-## Available bug report types
+```
+    julia --bug-report=REPORT_TYPE[,REPORT_FLAG,...]
+```
+
+Currently, only the [rr](https://github.com/rr-debugger/rr) tool is supported to generate
+bug reports, but in the future other types of reports may be supported as well.
+
+
+## Available bug report types and flags
+
+### `--bug-report=help`
+
+Print help message and exit.
 
 ### `--bug-report=rr`
 
@@ -13,9 +25,11 @@ Run `julia` inside `rr record` and upload the recorded trace.
 
 Run `julia` inside `rr record` but do not upload the recorded trace. Useful for local debugging.
 
-### `--bug-report=help`
+### `--bug-report=XXX,timeout=SECONDS`
 
-Print help message and exit.
+Generate a bug report, but limit the execution time of the debugged process to `SECONDS` seconds.
+This is useful for generating reports for hangs.
+
 
 ## Using the traces for local debugging
 

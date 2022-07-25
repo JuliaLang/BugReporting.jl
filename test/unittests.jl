@@ -5,11 +5,11 @@ using BugReporting:
 using Test
 
 @testset "check_perf_event_paranoid" begin
-    function check(value, flags = "")
+    function check(value, rr_flags=``)
         mktemp() do path, io
             write(io, value)
             close(io)
-            check_perf_event_paranoid(path; record_flags=Base.shell_split(flags))
+            check_perf_event_paranoid(path; rr_flags=rr_flags)
         end
         return true
     end
@@ -17,12 +17,12 @@ using Test
     @test check("1")
     @test_throws InvalidPerfEventParanoidError check("2")
     @test_throws InvalidPerfEventParanoidError check("3")
-    @test check("2", "-n")
-    @test check("2", "--no-syscall-buffer")
+    @test check("2", `-n`)
+    @test check("2", `--no-syscall-buffer`)
 
     # Let `rr` handle these?
     @test check("non integer")
-    @test check_perf_event_paranoid("/hopefully/non/existing/path"; record_flags=String[]) === nothing
+    @test check_perf_event_paranoid("/hopefully/non/existing/path"; rr_flags=``) === nothing
 
     err = try
         check("2")

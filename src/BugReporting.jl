@@ -38,7 +38,7 @@ function check_rr_available()
 end
 
 # Values that are initialized in `__init__()`
-global_record_flags = String[]
+default_rr_record_flags = ``
 julia_checkout = ""
 
 struct InvalidPerfEventParanoidError <: Exception
@@ -57,8 +57,8 @@ function Base.showerror(io::IO, err::InvalidPerfEventParanoidError)
 end
 
 # `path` used for testing
-function check_perf_event_paranoid(path = "/proc/sys/kernel/perf_event_paranoid"; record_flags = global_record_flags)
-    isempty(intersect(["-n", "--no-syscall-buffer"], record_flags)) || return
+function check_perf_event_paranoid(path="/proc/sys/kernel/perf_event_paranoid"; rr_flags=``)
+    isempty(intersect(["-n", "--no-syscall-buffer"], rr_flags.exec)) || return
     isfile(path) || return  # let `rr` handle this
     value = tryparse(Int, read(path, String))
     value === nothing && return  # let `rr` handle this
@@ -122,9 +122,10 @@ function compress_trace(trace_directory::String, output_file::String)
     return nothing
 end
 
-function rr_record(julia_cmd::Cmd, args...; trace_dir=nothing, metadata=nothing)
+function rr_record(julia_cmd::Cmd, julia_args...; rr_flags=default_rr_record_flags,
+                   trace_dir=nothing, metadata=nothing, timeout=0)
     check_rr_available()
-    check_perf_event_paranoid()
+    check_perf_event_paranoid(; rr_flags=rr_flags)
 
     new_env = copy(ENV)
     if trace_dir !== nothing
@@ -154,28 +155,36 @@ function rr_record(julia_cmd::Cmd, args...; trace_dir=nothing, metadata=nothing)
     delete!(new_env, "PYTHONHOME")
 
     proc = rr() do rr_path
-        rr_cmd = `$(rr_path) record $(global_record_flags) $julia_cmd $(args...)`
+        rr_cmd = `$(rr_path) record $rr_flags $julia_cmd $(julia_args...)`
         cmd = ignorestatus(setenv(rr_cmd, new_env))
 
         proc = run(cmd, stdin, stdout, stderr; wait=false)
 
         exit_on_sigint(false)
-        while process_running(proc)
-            try
-                wait(proc)
-            catch err
-                isa(err, InterruptException) || throw(err)
-                println("Interrupting the process...")
-                kill(proc, Base.SIGINT)
-                Timer(2) do timer
-                    process_running(proc) || return
-                    println("Terminating the process...")
-                    kill(proc, Base.SIGTERM)
+        @sync begin
+            t1 = @async while process_running(proc)
+                try
+                    wait(proc)
+                catch err
+                    isa(err, InterruptException) || throw(err)
+                    println("Interrupting the process...")
+                    kill(proc, Base.SIGINT)
+                    Timer(2) do timer
+                        process_running(proc) || return
+                        println("Terminating the process...")
+                        kill(proc, Base.SIGTERM)
+                    end
+                    Timer(5) do timer
+                        process_running(proc) || return
+                        println("Killing the process...")
+                        kill(proc, Base.SIGKILL)
+                    end
                 end
-                Timer(5) do timer
-                    process_running(proc) || return
-                    println("Killing the process...")
-                    kill(proc, Base.SIGKILL)
+            end
+
+            if timeout > 0
+                @async Timer(2) do timer
+                    istaskdone(t1) || Base.throwto(t1, InterruptException())
                 end
             end
         end
@@ -347,13 +356,26 @@ function read_comp_dir(binary_path)
     return
 end
 
-function make_interactive_report(report_type, ARGS=[])
-    if report_type == "help"
+function make_interactive_report(report_arg, ARGS=[])
+    if report_arg == "help"
         show(stdout, "text/plain", @doc(BugReporting))
         println()
         return
     end
 
+    # split the report specification into the type and any modifiers
+    report_type, report_modifiers... = split(report_arg, ',')
+    timeout = 0
+    for report_modifier in report_modifiers
+        option, value = split(report_modifier, '=')
+        if option == "timeout"
+            timeout = parse(Int, value)
+        else
+            error("Unknown report option: $(option)")
+        end
+    end
+
+    # construct the Julia command
     cmd = Base.julia_cmd()
     if Base.JLOptions().project != C_NULL
         # --project is not included in julia_cmd
@@ -383,15 +405,17 @@ function make_interactive_report(report_type, ARGS=[])
     end
 
     if report_type == "rr-local"
-        proc = rr_record(cmd, ARGS...; metadata=metadata)
+        proc = rr_record(cmd, ARGS...; metadata=metadata, timeout=timeout)
         handle_child_error(proc)
         return
     elseif report_type == "rr"
-        mktempdir() do trace_dir
-            proc = rr_record(cmd, ARGS...; trace_dir=trace_dir), metadata=metadata
+        proc = mktempdir() do trace_dir
+            proc = rr_record(cmd, ARGS...; trace_dir=trace_dir, metadata=metadata,
+                                           timeout=timeout)
             @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
             rr_pack(trace_dir)
             upload_rr_trace(trace_dir)
+            proc
         end
         handle_child_error(proc)
         return
@@ -506,8 +530,7 @@ function upload_rr_trace(trace_directory)
 end
 
 function __init__()
-    # Read in environment variable settings
-    global global_record_flags = split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false)
+    global default_rr_record_flags = `$(split(get(ENV, "JULIA_RR_RECORD_ARGS", ""), ' ', keepempty=false))`
 
     global julia_checkout = @get_scratch!("julia")
 end
