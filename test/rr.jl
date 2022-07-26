@@ -165,7 +165,35 @@ end
         end
         @test success(proc)
 
-        @test contains(output.stdout, "Current source file is")
+        @test contains(output.stdout, r"Current source file is .+\.c")
+        @test contains(output.stdout, "Located in")
+        @test contains(output.stdout, r"Contains \d+ lines")
+    end
+
+    # Test that standard library source code is made available for traces
+    mktempdir() do temp_trace_dir
+        proc, _ = withenv("_RR_TRACE_DIR" => temp_trace_dir) do
+            cmd = ```$(Base.julia_cmd()) --project=$(dirname(@__DIR__))
+                                         --bug-report=rr-local
+                                         --eval "Regex(\"\")"```
+            communicate(cmd)
+        end
+        @test success(proc)
+
+        proc, output = communicate() do
+            BugReporting.replay(temp_trace_dir; gdb_flags=`-nh -batch`, gdb_commands=[
+                    "continue",
+                    "break pcre2_jit_compile_8",
+                    "reverse-continue",
+                    "up",
+                    "info source",
+                    "bt",
+                    "quit"
+                ])
+        end
+        @test success(proc)
+
+        @test contains(output.stdout, r"Current source file is .+\.jl")
         @test contains(output.stdout, "Located in")
         @test contains(output.stdout, r"Contains \d+ lines")
     end
