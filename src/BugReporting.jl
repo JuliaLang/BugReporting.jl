@@ -242,7 +242,7 @@ function download_rr_trace(trace_url)
     p = nothing
     function update_progress(total::Int, now::Int)
         if p === nothing && total > 0 && now != total
-            p = Progress(total; desc="Downloading trace:")
+            p = Progress(total; desc="Downloading trace: ")
         end
         if p !== nothing
             update!(p, now)
