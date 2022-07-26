@@ -143,7 +143,7 @@ function compress_trace(trace_directory::String, output_file::String)
 end
 
 function rr_record(julia_cmd::Cmd, julia_args...; rr_flags=default_rr_record_flags,
-                   trace_dir=default_rr_trace_dir(), metadata=nothing, timeout=0)
+                   trace_dir=default_rr_trace_dir(), timeout=0, extras=false)
     check_rr_available()
     check_perf_event_paranoid(; rr_flags=rr_flags)
 
@@ -191,11 +191,32 @@ function rr_record(julia_cmd::Cmd, julia_args...; rr_flags=default_rr_record_fla
         return proc
     end
 
-    # add metadata to the trace
-    if metadata !== nothing
+    if extras
+        # we know that the currently executing Julia process matches the one we'll record,
+        # so gather some additional information and add it to the trace
+        metadata = Dict(
+            "version"   => string(METADATA_VERSION),
+            "commit"    => Base.GIT_VERSION_INFO.commit
+        )
+        # TODO: use `-fdebug-prefix-map` during the build instead
+        comp_dir = read_comp_dir(Base.julia_cmd().exec[1])
+        if comp_dir !== nothing
+            metadata["comp_dir"] = comp_dir
+        else
+            @error "Could not find the compilation directory, source paths may be incorrect during replay. Please file an issue on the BugReporting.jl repository."
+        end
         open(joinpath(find_latest_trace(trace_dir), "julia_metadata.json"), "w") do io
             JSON.print(io, metadata)
         end
+
+        # add standard library sources to the trace
+        # XXX: the Base stdlib sources can be found in here as well, as a symlink to their
+        #      location in the Julia repository, but we don't copy them (i.e. we don't set
+        #      follow_symlinks=true) because (1) the DW_AT_name debug info always points to
+        #      the source location anyway, and (2) some of these symlinks have been noticed
+        #      to be broken which could break trace recording.
+        cp(joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia"),
+           joinpath(find_latest_trace(trace_dir), "julia_sources"))
     end
 
     return proc
@@ -279,14 +300,29 @@ function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``)
 
     gdb_args = `$gdb_flags`
     if metadata !== nothing
-        source_code = get_sourcecode(metadata["commit"])
-        if source_code !== nothing
+        # standard library sources are part of the trace
+        stdlib_sources = joinpath(trace_dir, "julia_sources")
+        if ispath(stdlib_sources)
             if haskey(metadata, "comp_dir")
-                gdb_args = `$gdb_args -ex "set substitute-path $(metadata["comp_dir"]) $source_code"`
+                gdb_args = `$gdb_args -ex "set substitute-path $(metadata["comp_dir"])/usr/share/julia $stdlib_sources"`
             else
-                gdb_args = `$gdb_args -ex "directory $(joinpath(source_code, "src"))"`
-                gdb_args = `$gdb_args -ex "directory $(joinpath(source_code, "base"))"`
+                # we don't really want to add a `directory` entry for every stdlib subdir
             end
+        end
+
+        # Julia source code is fetched from Git. this needs to happen after adding standard
+        # library sources because the checkout directory typically contains the system image
+        # (as we build into `$checkout/usr`) and the rules are order sensitive.
+        julia_source = get_sourcecode(metadata["commit"])
+        if julia_source !== nothing
+            if haskey(metadata, "comp_dir")
+                gdb_args = `$gdb_args -ex "set substitute-path $(metadata["comp_dir"]) $julia_source"`
+            else
+                gdb_args = `$gdb_args -ex "directory $(joinpath(julia_source, "src"))"`
+            end
+
+            # the Base stdlib is part of the Julia repository
+            gdb_args = `$gdb_args -ex "directory $(joinpath(julia_source, "base"))"`
         else
             @warn "Could not find the source code for Julia commit $commit."
         end
@@ -390,28 +426,13 @@ function make_interactive_report(report_arg, ARGS=[])
     end
     cmd = `$cmd --history-file=no`
 
-    # we know that the currently executing Julia process matches the one we'll be recording,
-    # so gather some additional information and add it as metadata to the trace
-    metadata = Dict(
-        "version"   => string(METADATA_VERSION),
-        "commit"    => Base.GIT_VERSION_INFO.commit
-    )
-    # TODO: use `-fdebug-prefix-map` during the build instead
-    comp_dir = read_comp_dir(Base.julia_cmd().exec[1])
-    if comp_dir !== nothing
-        metadata["comp_dir"] = comp_dir
-    else
-        @error "Could not find the compilation directory, source paths may be incorrect during replay. Please file an issue on the BugReporting.jl repository."
-    end
-
     if report_type == "rr-local"
-        proc = rr_record(cmd, ARGS...; metadata=metadata, timeout=timeout)
+        proc = rr_record(cmd, ARGS...; timeout=timeout, extras=true)
         handle_child_error(proc)
         return
     elseif report_type == "rr"
         proc = mktempdir() do trace_dir
-            proc = rr_record(cmd, ARGS...; trace_dir=trace_dir, metadata=metadata,
-                                           timeout=timeout)
+            proc = rr_record(cmd, ARGS...; trace_dir=trace_dir, timeout=timeout, extras=true)
             @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
             rr_pack(trace_dir)
             upload_rr_trace(trace_dir)
