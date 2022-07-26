@@ -17,6 +17,7 @@ using AWS, AWSS3
 using Tar
 using Git
 import Downloads
+using ProgressMeter
 
 # https://github.com/JuliaLang/julia/pull/29411
 if isdefined(Base, :exit_on_sigint)
@@ -217,10 +218,25 @@ function decompress_rr_trace(trace_file)
 end
 
 function download_rr_trace(trace_url)
+    p = nothing
+    function update_progress(total::Int, now::Int)
+        if p === nothing && total > 0 && now != total
+            p = Progress(total; desc="Downloading trace:")
+        end
+        if p !== nothing
+            update!(p, now)
+        end
+        if now == total
+            p = nothing
+        end
+        return
+    end
+    progress = isinteractive() ? update_progress : nothing
+
     mktempdir() do dl_dir
         # Download into temporary directory (we'll clean-up straight away)
         local_path = joinpath(dl_dir, "trace.tar.zst")
-        Downloads.download(trace_url, local_path)
+        Downloads.download(trace_url, local_path; progress=progress)
         decompress_rr_trace(local_path)
     end
 end
