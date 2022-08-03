@@ -282,12 +282,17 @@ function get_sourcecode(commit)
     return dir
 end
 
-function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``)
+function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``,
+                rr_replay_flags=``)
+    # download remote traces
     if startswith(trace_url, "s3://")
         trace_url = string("https://s3.amazonaws.com/julialang-dumps/", trace_url[6:end])
     end
     if startswith(trace_url, "http://") || startswith(trace_url, "https://")
         trace_url = download_rr_trace(trace_url)
+        rr_replay_flags = `$rr_replay_flags --serve-files`
+        # for remote traces, we assume it originated on a different system, so we need to
+        # tell rr to serve files as it's unlikely they will be available locally.
     end
 
     # If it's a file, try to decompress it
@@ -314,6 +319,7 @@ function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``)
         metadata = nothing
     end
 
+    # determine GDB arguments
     gdb_args = `$gdb_flags`
     if metadata !== nothing
         # standard library sources are part of the trace
@@ -347,12 +353,14 @@ function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``)
         gdb_args = `$gdb_args -ex "$gdb_command"`
     end
 
+    # replay with rr
     proc = rr() do rr_path
         gdb() do gdb_path
-            run(`$(rr_path) replay -d $(gdb_path) $trace_dir -- $gdb_args`)
+            run(`$rr_path replay $rr_replay_flags -d $gdb_path $trace_dir -- $gdb_args`)
         end
     end
 
+    # clean-up
     if @isdefined(source_code) && source_code !== nothing
         rm(source_code; recursive=true)
     end
