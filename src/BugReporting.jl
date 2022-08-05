@@ -266,21 +266,21 @@ end
 
 function get_sourcecode(commit)
     # core check-out
-    if ispath(joinpath(julia_checkout, "config"))
-        run(`$(git()) -C $julia_checkout fetch --quiet`)
-    else
+    if !ispath(joinpath(julia_checkout, "config"))
         println("Checking-out Julia source code, this may take a minute...")
         run(`$(git()) clone --quiet --bare https://github.com/JuliaLang/julia.git $julia_checkout`)
     end
 
-    # verify commit
-    cmd = `$(git()) -C $julia_checkout rev-parse --quiet --verify $commit`
-    success(pipeline(cmd, stdout=devnull)) || return nothing
+    # explicitly fetch the requested commit from the remote and put it on the master branch.
+    # we need to do this as not all commits (e.g. merge heads) might be available locally
+    if !success(`$(git()) -C $julia_checkout fetch --quiet --force origin $commit:master`)
+        @error "Could not fetch commit $commit from the Julia repository."
+        return nothing
+    end
 
     # check-out source code
     dir = mktempdir()
-    run(`$(git()) clone --quiet $julia_checkout $dir`)
-    run(`$(git()) -C $dir checkout --quiet $commit`)
+    run(`$(git()) clone --quiet --branch master $julia_checkout $dir`)
     return dir
 end
 
