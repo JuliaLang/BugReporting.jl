@@ -186,7 +186,7 @@ function rr_record(julia_cmd::Cmd, julia_args...; rr_flags=default_rr_record_fla
             end
 
             if timeout > 0
-                @async Timer(2) do timer
+                @async Timer(timeout) do timer
                     istaskdone(t1) || Base.throwto(t1, InterruptException())
                 end
             end
