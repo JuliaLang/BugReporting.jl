@@ -43,6 +43,7 @@ end
 # Values that are initialized in `__init__()`
 default_rr_record_flags = ``
 julia_checkout = ""
+trace_cache = ""
 
 struct InvalidPerfEventParanoidError <: Exception
     value
@@ -234,10 +235,12 @@ function decompress_rr_trace(trace_file, out_dir)
 end
 
 function decompress_rr_trace(trace_file)
-    # Extract into temporary directory (we'll clean-up when the process exists)
-    dir = mktempdir()
-    decompress_rr_trace(trace_file, dir)
-    return dir
+    # extract, cached for the duration of this session
+    trace_dir = joinpath(trace_cache, basename(trace_file))
+    if !isdir(trace_dir)
+        decompress_rr_trace(trace_file, trace_dir)
+    end
+    return trace_dir
 end
 
 function download_rr_trace(trace_url)
@@ -256,12 +259,16 @@ function download_rr_trace(trace_url)
     end
     progress = isinteractive() ? update_progress : nothing
 
-    mktempdir() do dl_dir
-        # Download into temporary directory (we'll clean-up straight away)
-        local_path = joinpath(dl_dir, "trace.tar.zst")
-        Downloads.download(trace_url, local_path; progress=progress)
-        decompress_rr_trace(local_path)
+    # download and extract, cached for the duration of this session
+    trace_dir = joinpath(trace_cache, basename(trace_url))
+    if !isdir(trace_dir)
+        mktempdir() do dl_dir
+            local_path = joinpath(dl_dir, "trace.tar.zst")
+            Downloads.download(trace_url, local_path; progress=progress)
+            decompress_rr_trace(local_path, trace_dir)
+        end
     end
+    return trace_dir
 end
 
 function get_sourcecode(commit)
@@ -582,6 +589,7 @@ function __init__()
     end
 
     global julia_checkout = @get_scratch!("julia")
+    global trace_cache = mktempdir()
 end
 
 
