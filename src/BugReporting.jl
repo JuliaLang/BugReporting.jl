@@ -565,29 +565,22 @@ function upload_rr_trace(trace_directory; credentials, url)
         rr_pack(trace_directory)
     end
 
-    # Compress the tarball
-    proc = zstdmt() do zstdp
-        open(`$zstdp -`, "r+")
-    end
-
-    # Upload the compressed tarball
-    t = @async begin
-        try
-            S3.put(url, proc; credentials, region="us-east-1",
-                   multipartThreshold=0 #= to force multipart upload =#)
-        catch e
-            Base.showerror(stderr, e)
-            Base.show_backtrace(stderr, catch_backtrace())
+    mktempdir() do dir
+        # Create a compressed tarball
+        tarball = joinpath(dir, "trace.tar")
+        Tar.create(trace_directory, tarball)
+        zstdmt() do zstdp
+            run(`$zstdp --quiet $tarball`)
         end
+
+        # Upload
+        println("Uploading trace directory...")
+        S3.put(url, tarball * ".zst"; credentials, region="us-east-1")
+        println("Uploaded to $url")
+
+        # NOTE: we used to perform this in a streaming fashion,
+        #       but CloudStore.jl doesn't support that very well.
     end
-
-    # Create the tarball
-    Tar.create(trace_directory, proc)
-    close(proc.in)
-
-    println("Uploading trace directory...")
-    wait(t)
-    println("Uploaded to $url")
 end
 
 function __init__()
