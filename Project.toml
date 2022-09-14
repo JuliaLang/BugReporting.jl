@@ -19,7 +19,7 @@ Zstd_jll = "3161d3a3-bdf6-5164-811a-617609db77b4"
 rr_jll = "e86bdf43-55f7-5ea2-9fd0-e7daa2c0f2b4"
 
 [compat]
-CloudBase = "1"
+CloudBase = "1.2"
 CloudStore = "1"
 Elfutils_jll = "0.182"
 GDB_jll = "12.1"

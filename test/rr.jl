@@ -1,4 +1,4 @@
-using Pkg, HTTP
+using Pkg, CloudStore, CloudBase.CloudTest
 
 # helper functions to run a command or a block of code while capturing all output
 function communicate(f::Function)
@@ -99,16 +99,26 @@ end
             BugReporting.compress_trace(temp_trace_dir, tarzst_path)
             @test isfile(tarzst_path)
             test_replay(tarzst_path)
+        end
 
-            # Test that we can replay that trace from an URL (actually uploading it is hard)
-            port = rand(1024:65535)
-            server = HTTP.listen!("127.0.0.1", port) do http::HTTP.Stream
-                HTTP.setstatus(http, 200)
-                HTTP.startwrite(http)
-                write(http, read(tarzst_path))
+        # Test that we can upload a trace directory, and replay it.
+        # Note that Minio requires a non-tmpfs working directory,
+        # so we don't use plain mktempdir() as /tmp is likely to be tmpfs.
+        cache_dir = if haskey(ENV, "CI")
+            # most of our Sandbox.jl-based environment is tmpfs-backed, but /cache isn't
+            "/cache"
+        else
+            get(ENV, "XDG_CACHE_HOME", joinpath(homedir(), ".cache"))
+        end
+        mkpath(cache_dir)
+        mktempdir(cache_dir) do temp_srv_dir
+            Minio.with(; public=true, dir=temp_srv_dir) do conf
+                credentials, bucket = conf
+                url = bucket.baseurl * "test.tar.zst"
+                BugReporting.upload_rr_trace(temp_trace_dir; credentials, url)
+
+                test_replay(url)
             end
-            test_replay("http://127.0.0.1:$port")
-            close(server)
         end
     end
 
