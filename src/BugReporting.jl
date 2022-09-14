@@ -14,8 +14,8 @@ using Zstd_jll: zstdmt
 using Elfutils_jll: eu_readelf
 import HTTP
 using JSON
-import AWS
-using AWSS3: s3_multipart_upload
+using CloudStore: S3
+using CloudBase: AWS
 import Tar
 using Git: git
 import Downloads
@@ -31,7 +31,7 @@ end
 
 const WSS_ENDPOINT = "wss://53ly7yebjg.execute-api.us-east-1.amazonaws.com/test"
 const GITHUB_APP_ID = "Iv1.c29a629771fe63c4"
-const TRACE_BUCKET = "julialang-dumps"
+const TRACE_BUCKET = "https://julialang-dumps.s3.amazonaws.com"
 const METADATA_VERSION = v"1"
 
 function check_rr_available()
@@ -478,8 +478,6 @@ function make_interactive_report(report_arg, ARGS=[])
     end
 end
 
-const S3_CHUNK_SIZE = 25 # MB
-
 include("sync_compat.jl")
 
 function upload_rr_trace(trace_directory)
@@ -556,31 +554,34 @@ function upload_rr_trace(trace_directory)
     println()
     println("Uploading trace directory...")
 
-    creds = AWS.AWSCredentials(
+    credentials = AWS.Credentials(
         s3creds["AWS_ACCESS_KEY_ID"],
         s3creds["AWS_SECRET_ACCESS_KEY"],
         s3creds["AWS_SESSION_TOKEN"])
-    aws = AWS.AWSConfig(creds = creds, region="us-east-1")
 
-    # Tar it up
+    # Compress the tarball
     proc = zstdmt() do zstdp
         open(`$zstdp -`, "r+")
     end
 
+    # Upload the compressed tarball
+    url = "$TRACE_BUCKET/$(s3creds["UPLOAD_PATH"])"
     t = @async begin
         try
-            s3_multipart_upload(aws, TRACE_BUCKET, s3creds["UPLOAD_PATH"], proc, S3_CHUNK_SIZE)
+            S3.put(url, proc; credentials, region="us-east-1",
+                   multipartThreshold=0 #= to force multipart upload =#)
         catch e
             Base.showerror(stderr, e)
+            Base.show_backtrace(stderr, catch_backtrace())
         end
     end
 
-    # Start the Tar creation process, the file will be uploaded as it's created
+    # Create the tarball
     Tar.create(trace_directory, proc)
     close(proc.in)
 
     wait(t)
-    println("Uploaded to https://s3.amazonaws.com/$TRACE_BUCKET/$(s3creds["UPLOAD_PATH"])")
+    println("Uploaded to $url")
 end
 
 function __init__()
