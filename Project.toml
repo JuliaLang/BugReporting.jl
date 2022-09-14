@@ -1,7 +1,7 @@
 name = "BugReporting"
 uuid = "bcf9a6e7-4020-453c-b88e-690564246bb8"
 authors = ["Keno Fischer <keno@juliacomputing.com>", "Tim Besard <tim.besard@gmail.com>"]
-version = "0.2.6"
+version = "0.2.7"
 
 [deps]
 AWS = "fbe9abb3-538b-5e4e-ba9e-bc94f4f92ebc"
