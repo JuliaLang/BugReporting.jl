@@ -468,7 +468,8 @@ function make_interactive_report(report_arg, ARGS=[])
             proc = rr_record(cmd, ARGS...; trace_dir=trace_dir, timeout=timeout, extras=true)
             @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
             rr_pack(trace_dir)
-            upload_rr_trace(trace_dir)
+            params = get_upload_params()
+            upload_rr_trace(trace_dir; params...)
             proc
         end
         handle_child_error(proc)
@@ -480,15 +481,7 @@ end
 
 include("sync_compat.jl")
 
-function upload_rr_trace(trace_directory)
-    # Auto-pack this trace directory if it hasn't already been:
-    sample_directory = joinpath(trace_directory, "latest-trace")
-    if isdir(sample_directory) && uperm(sample_directory) & 0x2 == 0
-        @info "`$sample_directory` not writable. Skipping `rr pack`."
-    else
-        rr_pack(trace_directory)
-    end
-
+function get_upload_params()
     c = Channel()
     t = @async HTTP.WebSockets.open(WSS_ENDPOINT) do ws
         HTTP.send(ws, "Hello Server, if it's not too much trouble, please send me S3 credentials")
@@ -552,12 +545,25 @@ function upload_rr_trace(trace_directory)
     end
 
     println()
-    println("Uploading trace directory...")
+
+    url = "$TRACE_BUCKET/$(s3creds["UPLOAD_PATH"])"
 
     credentials = AWS.Credentials(
         s3creds["AWS_ACCESS_KEY_ID"],
         s3creds["AWS_SECRET_ACCESS_KEY"],
         s3creds["AWS_SESSION_TOKEN"])
+
+    return (; credentials, url)
+end
+
+function upload_rr_trace(trace_directory; credentials, url)
+    # Auto-pack this trace directory if it hasn't already been:
+    sample_directory = joinpath(trace_directory, "latest-trace")
+    if isdir(sample_directory) && uperm(sample_directory) & 0x2 == 0
+        @info "`$sample_directory` not writable. Skipping `rr pack`."
+    else
+        rr_pack(trace_directory)
+    end
 
     # Compress the tarball
     proc = zstdmt() do zstdp
@@ -565,7 +571,6 @@ function upload_rr_trace(trace_directory)
     end
 
     # Upload the compressed tarball
-    url = "$TRACE_BUCKET/$(s3creds["UPLOAD_PATH"])"
     t = @async begin
         try
             S3.put(url, proc; credentials, region="us-east-1",
@@ -580,6 +585,7 @@ function upload_rr_trace(trace_directory)
     Tar.create(trace_directory, proc)
     close(proc.in)
 
+    println("Uploading trace directory...")
     wait(t)
     println("Uploaded to $url")
 end
