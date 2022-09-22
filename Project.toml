@@ -4,8 +4,8 @@ authors = ["Keno Fischer <keno@juliacomputing.com>", "Tim Besard <tim.besard@gma
 version = "0.2.7"
 
 [deps]
-AWS = "fbe9abb3-538b-5e4e-ba9e-bc94f4f92ebc"
-AWSS3 = "1c724243-ef5b-51ab-93f4-b0a88ac62a95"
+CloudBase = "85eb1798-d7c4-4918-bb13-c944d38e27ed"
+CloudStore = "3365d9ee-d53b-4a56-812d-5344d5b716d7"
 Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 Elfutils_jll = "ab5a07f8-06af-567f-a878-e8bb879eba5a"
 GDB_jll = "a8b33d9f-0f8b-5197-9986-f85cbaa50c6c"
@@ -19,8 +19,8 @@ Zstd_jll = "3161d3a3-bdf6-5164-811a-617609db77b4"
 rr_jll = "e86bdf43-55f7-5ea2-9fd0-e7daa2c0f2b4"
 
 [compat]
-AWS = "1.49"
-AWSS3 = "0.8, 0.9, 0.10"
+CloudBase = "1.2"
+CloudStore = "1"
 Elfutils_jll = "0.182"
 GDB_jll = "12.1"
 Git = "1.0"
