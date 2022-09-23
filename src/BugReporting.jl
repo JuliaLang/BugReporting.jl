@@ -461,24 +461,23 @@ function make_interactive_report(report_arg, ARGS=[])
     if report_type == "rr-local"
         proc = rr_record(cmd, ARGS...; timeout=timeout, extras=true)
         handle_child_error(proc)
-        return
     elseif report_type == "rr"
-        proc = mktempdir() do trace_dir
+        mktempdir() do trace_dir
             proc = rr_record(cmd, ARGS...; trace_dir=trace_dir, timeout=timeout, extras=true)
             "Preparing trace for upload (if your trace is large this may take a few minutes)..."
             rr_pack(trace_dir)
-            path, creds = get_upload_params()
+            params = get_upload_params()
+            if params !== nothing
+                path, creds = params
 
-            println("Uploading trace...")
-            withenv("AWS_REGION" => "us-east-1") do
-                upload_rr_trace(trace_dir, "s3://$TRACE_BUCKET/$path"; creds...)
+                println("Uploading trace...")
+                withenv("AWS_REGION" => "us-east-1") do
+                    upload_rr_trace(trace_dir, "s3://$TRACE_BUCKET/$path"; creds...)
+                end
+                println("Uploaded to https://$TRACE_BUCKET.s3.amazonaws.com/$path")
             end
-            println("Uploaded to https://$TRACE_BUCKET.s3.amazonaws.com/$path")
-
-            proc
+            handle_child_error(proc)
         end
-        handle_child_error(proc)
-        return
     else
         error("Unknown report type: $report_type")
     end
