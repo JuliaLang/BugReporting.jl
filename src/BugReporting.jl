@@ -14,12 +14,11 @@ using Zstd_jll: zstdmt
 using Elfutils_jll: eu_readelf
 import HTTP
 using JSON
-using CloudStore: S3
-using CloudBase: AWS
 import Tar
 using Git: git
 import Downloads
 using ProgressMeter: Progress, update!
+using s5cmd_jll: s5cmd
 
 # https://github.com/JuliaLang/julia/pull/29411
 if isdefined(Base, :exit_on_sigint)
@@ -31,7 +30,7 @@ end
 
 const WSS_ENDPOINT = "wss://53ly7yebjg.execute-api.us-east-1.amazonaws.com/test"
 const GITHUB_APP_ID = "Iv1.c29a629771fe63c4"
-const TRACE_BUCKET = "https://julialang-dumps.s3.amazonaws.com"
+const TRACE_BUCKET = "julialang-dumps"
 const METADATA_VERSION = v"1"
 
 function check_rr_available()
@@ -466,10 +465,16 @@ function make_interactive_report(report_arg, ARGS=[])
     elseif report_type == "rr"
         proc = mktempdir() do trace_dir
             proc = rr_record(cmd, ARGS...; trace_dir=trace_dir, timeout=timeout, extras=true)
-            @info "Preparing trace directory for upload (if your trace is large this may take a few minutes)"
+            "Preparing trace for upload (if your trace is large this may take a few minutes)..."
             rr_pack(trace_dir)
-            params = get_upload_params()
-            upload_rr_trace(trace_dir; params...)
+            path, creds = get_upload_params()
+
+            println("Uploading trace...")
+            withenv("AWS_REGION" => "us-east-1") do
+                upload_rr_trace(trace_dir, "s3://$TRACE_BUCKET/$path"; creds...)
+            end
+            println("Uploaded to https://$TRACE_BUCKET.s3.amazonaws.com/$path")
+
             proc
         end
         handle_child_error(proc)
@@ -482,6 +487,21 @@ end
 include("sync_compat.jl")
 
 function get_upload_params()
+    # big disclaimer
+    println()
+    printstyled("### IMPORTANT =============================================================\n", blink = true)
+    println("""
+        You are about to upload a trace directory to a publicly accessible location.
+        Such traces contain any information that was accessed by the traced
+        executable during its execution. This includes any code loaded, any
+        secrets entered, the contents of any configuration files, etc.
+
+        DO NOT proceed, if you do not wish to make this information publicly available.
+        By proceeding you explicitly agree to waive any privacy interest in the
+        uploaded information.""")
+    printstyled("### =======================================================================\n", blink = true)
+    println()
+
     c = Channel()
     t = @async HTTP.WebSockets.open(WSS_ENDPOINT) do ws
         HTTP.send(ws, "Hello Server, if it's not too much trouble, please send me S3 credentials")
@@ -517,22 +537,12 @@ function get_upload_params()
     end
     bind(c, t)
     connectionId = take!(c)
-    println()
-    println("""
-    ### IMPORTANT =============================================================
-    You are about to upload a trace directory to a publicly accessible location.
-    Such traces contain any information that was accessed by the traced
-    executable during its execution. This includes any code loaded, any
-    secrets entered, the contents of any configuration files, etc.
-    DO NOT proceed, if you do not wish to make this information publicly available.
-    By proceeding you explicitly agree to waive any privacy interest in the
-    uploaded information.
-    ### =======================================================================
-    """)
-    println("To upload a trace, please authenticate, by visiting:\n")
+
+    println("To upload a trace, please authenticate by visiting:\n")
     println("\thttps://github.com/login/oauth/authorize?client_id=$GITHUB_APP_ID&state=$(HTTP.escapeuri(connectionId))")
     println("\n", "You can cancel upload by `Ctrl-C`.")
     flush(stdout)
+
     s3creds = try
         take!(c)
     catch err
@@ -546,27 +556,23 @@ function get_upload_params()
 
     println()
 
-    url = "$TRACE_BUCKET/$(s3creds["UPLOAD_PATH"])"
-
-    credentials = AWS.Credentials(
-        s3creds["AWS_ACCESS_KEY_ID"],
-        s3creds["AWS_SECRET_ACCESS_KEY"],
-        s3creds["AWS_SESSION_TOKEN"])
-
-    return (; credentials, url)
+    return s3creds["UPLOAD_PATH"], (; access_key_id=s3creds["AWS_ACCESS_KEY_ID"],
+                                      secret_access_key=s3creds["AWS_SECRET_ACCESS_KEY"],
+                                      session_token=s3creds["AWS_SESSION_TOKEN"])
 end
 
-function upload_rr_trace(trace_directory; credentials, url)
+function upload_rr_trace(trace_directory, url; access_key_id, secret_access_key, session_token)
     # Auto-pack this trace directory if it hasn't already been:
     sample_directory = joinpath(trace_directory, "latest-trace")
     if isdir(sample_directory) && uperm(sample_directory) & 0x2 == 0
-        @info "`$sample_directory` not writable. Skipping `rr pack`."
+        println("`$sample_directory` not writable. Skipping `rr pack`.")
     else
         rr_pack(trace_directory)
     end
 
     mktempdir() do dir
         # Create a compressed tarball
+        # TODO: stream (peak/s5cmd#182)
         tarball = joinpath(dir, "trace.tar")
         Tar.create(trace_directory, tarball)
         zstdmt() do zstdp
@@ -574,12 +580,12 @@ function upload_rr_trace(trace_directory; credentials, url)
         end
 
         # Upload
-        println("Uploading trace directory...")
-        S3.put(url, tarball * ".zst"; credentials, region="us-east-1")
-        println("Uploaded to $url")
-
-        # NOTE: we used to perform this in a streaming fashion,
-        #       but CloudStore.jl doesn't support that very well.
+        # TODO: progress bar (peak/s5cmd#51)
+        cmd = `$(s5cmd()) --log error cp $(tarball).zst $url`
+        cmd = addenv(cmd, "AWS_ACCESS_KEY_ID" => access_key_id,
+                          "AWS_SECRET_ACCESS_KEY" => secret_access_key,
+                          "AWS_SESSION_TOKEN" => session_token)
+        run(cmd)
     end
 end
 
