@@ -102,16 +102,7 @@ end
         end
 
         # Test that we can upload a trace directory, and replay it.
-        # Note that Minio requires a non-tmpfs working directory,
-        # so we don't use plain mktempdir() as /tmp is likely to be tmpfs.
-        cache_dir = if haskey(ENV, "CI")
-            # most of our Sandbox.jl-based environment is tmpfs-backed, but /cache isn't
-            "/cache"
-        else
-            get(ENV, "XDG_CACHE_HOME", joinpath(homedir(), ".cache"))
-        end
-        mkpath(cache_dir)
-        mktempdir(cache_dir) do temp_srv_dir
+        mktempdir() do temp_srv_dir
             Minio.with(; public=true, dir=temp_srv_dir) do conf
                 creds, bucket = conf
                 s3_url = "s3://$(bucket.name)/test.tar.zst"
