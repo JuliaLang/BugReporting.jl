@@ -424,6 +424,41 @@ function read_comp_dir(binary_path)
     return
 end
 
+# parse a time string of the form "num(|s|m|h|d|w)" into a number of seconds
+function parse_time(str)
+    time = 0
+    num_str = ""
+
+    for char in str
+        if isdigit(char)
+            num_str *= char
+        else
+            num = parse(Int, num_str)
+            if char == 's'
+                time += num
+            elseif char == 'm'
+                time += num * 60
+            elseif char == 'h'
+                time += num * 60 * 60
+            elseif char == 'd'
+                time += num * 60 * 60 * 24
+            elseif char == 'w'
+                time += num * 60 * 60 * 24 * 7
+            else
+                error("Invalid time unit '$str'")
+            end
+            num_str = ""
+        end
+    end
+
+    # unit-less number is treated as seconds
+    if num_str != ""
+        time += parse(Int, num_str)
+    end
+
+    return time
+end
+
 function make_interactive_report(report_arg, ARGS=[])
     if report_arg == "help"
         show(stdout, "text/plain", @doc(BugReporting))
@@ -437,7 +472,7 @@ function make_interactive_report(report_arg, ARGS=[])
     for report_modifier in report_modifiers
         option, value = split(report_modifier, '=')
         if option == "timeout"
-            timeout = parse(Int, value)
+            timeout = parse_time(value)
         else
             error("Unknown report option: $(option)")
         end
