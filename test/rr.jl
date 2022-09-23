@@ -1,4 +1,4 @@
-using Pkg, CloudStore, CloudBase.CloudTest
+using Pkg, CloudBase.CloudTest
 
 # helper functions to run a command or a block of code while capturing all output
 function communicate(f::Function)
@@ -113,11 +113,16 @@ end
         mkpath(cache_dir)
         mktempdir(cache_dir) do temp_srv_dir
             Minio.with(; public=true, dir=temp_srv_dir) do conf
-                credentials, bucket = conf
-                url = bucket.baseurl * "test.tar.zst"
-                BugReporting.upload_rr_trace(temp_trace_dir; credentials, url)
+                creds, bucket = conf
+                s3_url = "s3://$(bucket.name)/test.tar.zst"
+                http_url = bucket.baseurl * "test.tar.zst"
+                endpoint_url = replace(bucket.baseurl, "$(bucket.name)/"=>"")
+                withenv("S3_ENDPOINT_URL" => endpoint_url) do
+                    BugReporting.upload_rr_trace(temp_trace_dir, s3_url; creds.access_key_id,
+                                                 creds.secret_access_key, creds.session_token)
+                end
 
-                test_replay(url)
+                test_replay(http_url)
             end
         end
     end
