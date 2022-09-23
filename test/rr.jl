@@ -102,19 +102,17 @@ end
         end
 
         # Test that we can upload a trace directory, and replay it.
-        mktempdir() do temp_srv_dir
-            Minio.with(; public=true, dir=temp_srv_dir) do conf
-                creds, bucket = conf
-                s3_url = "s3://$(bucket.name)/test.tar.zst"
-                http_url = bucket.baseurl * "test.tar.zst"
-                endpoint_url = replace(bucket.baseurl, "$(bucket.name)/"=>"")
-                withenv("S3_ENDPOINT_URL" => endpoint_url) do
-                    BugReporting.upload_rr_trace(temp_trace_dir, s3_url; creds.access_key_id,
-                                                 creds.secret_access_key, creds.session_token)
-                end
-
-                test_replay(http_url)
+        Minio.with(; public=true) do conf
+            creds, bucket = conf
+            s3_url = "s3://$(bucket.name)/test.tar.zst"
+            http_url = bucket.baseurl * "test.tar.zst"
+            endpoint_url = replace(bucket.baseurl, "$(bucket.name)/"=>"")
+            withenv("S3_ENDPOINT_URL" => endpoint_url) do
+                BugReporting.upload_rr_trace(temp_trace_dir, s3_url; creds.access_key_id,
+                                             creds.secret_access_key, creds.session_token)
             end
+
+            test_replay(http_url)
         end
     end
 
