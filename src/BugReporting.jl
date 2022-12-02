@@ -8,17 +8,19 @@ using Scratch
 export replay, make_interactive_report
 
 using Base.Filesystem: uperm
-using rr_jll: rr_jll, rr
-using GDB_jll: gdb
-using Zstd_jll: zstdmt
-using Elfutils_jll: eu_readelf
+
 import HTTP
 using JSON
 import Tar
 using Git: git
 import Downloads
 using ProgressMeter: Progress, update!
-using s5cmd_jll: s5cmd
+
+using rr_jll
+using GDB_jll
+using Zstd_jll
+using s5cmd_jll
+using Elfutils_jll
 
 # https://github.com/JuliaLang/julia/pull/29411
 if isdefined(Base, :exit_on_sigint)
