@@ -160,7 +160,7 @@ function rr_record(julia_cmd::Cmd, julia_args...; rr_flags=default_rr_record_fla
     delete!(new_env, "PYTHONHOME")
 
     proc = rr() do rr_path
-        rr_cmd = `$(rr_path) record $rr_flags $julia_cmd $(julia_args...)`
+        rr_cmd = `$(rr_path) record $rr_flags $julia_cmd $julia_args`
         cmd = ignorestatus(setenv(rr_cmd, new_env))
 
         proc = run(cmd, stdin, stdout, stderr; wait=false)

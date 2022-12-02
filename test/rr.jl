@@ -69,7 +69,8 @@ end
             BugReporting.rr_record(
                 Base.julia_cmd(),
                 "-e",
-                "println(\"$(msg)\")";
+                "println(ARGS...)",
+                msg;
                 trace_dir=temp_trace_dir,
             )
         end
@@ -121,7 +122,7 @@ end
         proc, output = withenv("_RR_TRACE_DIR" => temp_trace_dir) do
             cmd = ```$(Base.julia_cmd()) --project=$(dirname(@__DIR__))
                                          --bug-report=rr-local
-                                         --eval "println(\"$(msg)\")"```
+                                         --eval "println(ARGS...)" $msg```
             communicate(cmd)
         end
         @test success(proc)
