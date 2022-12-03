@@ -356,7 +356,7 @@ function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``,
             # the Base stdlib is part of the Julia repository
             gdb_args = `$gdb_args -ex "directory $(joinpath(julia_source, "base"))"`
         else
-            @warn "Could not find the source code for Julia commit $commit."
+            @warn "Could not find the source code for Julia commit $(metadata["commit"])."
         end
     end
     for gdb_command in gdb_commands
