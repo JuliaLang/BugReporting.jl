@@ -33,7 +33,7 @@ end
 const WSS_ENDPOINT = "wss://53ly7yebjg.execute-api.us-east-1.amazonaws.com/test"
 const GITHUB_APP_ID = "Iv1.c29a629771fe63c4"
 const TRACE_BUCKET = "julialang-dumps"
-const METADATA_VERSION = v"1"
+const METADATA_VERSION = v"1.1"
 
 function check_rr_available()
     if !isdefined(rr_jll, :rr_path)
@@ -201,7 +201,8 @@ function rr_record(julia_cmd::Cmd, julia_args...; rr_flags=default_rr_record_fla
         # so gather some additional information and add it to the trace
         metadata = Dict(
             "version"   => string(METADATA_VERSION),
-            "commit"    => Base.GIT_VERSION_INFO.commit
+            "commit"    => Base.GIT_VERSION_INFO.commit,
+            "arch"      => Sys.ARCH,
         )
         # TODO: use `-fdebug-prefix-map` during the build instead
         comp_dir = read_comp_dir(Base.julia_cmd().exec[1])
@@ -327,6 +328,14 @@ function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``,
         end
     else
         metadata = nothing
+    end
+
+    # check the trace's architecture
+    if metadata !== nothing && VersionNumber(metadata["version"]) >= v"1.1"
+        arch = metadata["arch"]
+        if arch != String(Sys.ARCH)
+            error("Trace was recorded on a different architecture ($(arch)), replaying it on $(Sys.ARCH) is not supported.")
+        end
     end
 
     # determine GDB arguments
