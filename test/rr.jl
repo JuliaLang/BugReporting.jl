@@ -208,7 +208,7 @@ end
         t0 = time()
         proc, output = withenv("_RR_TRACE_DIR" => temp_trace_dir) do
             cmd = ```$(Base.julia_cmd()) --project=$(dirname(@__DIR__))
-                                         --bug-report=rr-local,timeout=2
+                                         --bug-report=rr-local,timeout=10
                                          --eval "println(\"Starting sleep\"); sleep(60)"```
             communicate(cmd)
         end

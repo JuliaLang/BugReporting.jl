@@ -33,6 +33,17 @@ steps:
       arch: "x86_64"
     timeout_in_minutes: 15
 
+  - label: "Julia 1.9"
+    plugins:
+      - JuliaCI/julia#v1:
+          version: 1.9
+      - JuliaCI/julia-test#v1: ~
+    agents:
+      queue: "juliaecosystem"
+      os: "linux"
+      arch: "x86_64"
+    timeout_in_minutes: 15
+
   - label: "Julia nightly"
     plugins:
       - JuliaCI/julia#v1:
