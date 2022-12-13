@@ -30,10 +30,15 @@ Run `julia` inside `rr record` but do not upload the recorded trace. Useful for 
 Generate a bug report, but limit the execution time of the debugged process to `SECONDS` seconds.
 This is useful for generating reports for hangs.
 
+### `--bug-report=rr,chaos`
+
+Generate an rr trace, while enabling so-called chaos mode. This is useful for flushing
+out threading-related issues (refer to the rr documentation for more details).
+
 
 ## Using the traces for local debugging
 
 You can use this package also for debugging your own Julia code locally. Use `--bug-report=rr-local`
-to record a trace, and `replay(PATH)` to replay a trace.
+to record a trace, and `replay()` to replay the latest trace.
 
 For example, if you have a script in a project that you'd like to trace, run `julia --bug-report=rr -- --project=foo run.jl`.
