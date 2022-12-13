@@ -148,7 +148,7 @@ function compress_trace(trace_directory::String, output_file::String)
 end
 
 function rr_record(julia_cmd::Cmd, julia_args...; rr_flags=default_rr_record_flags,
-                   trace_dir=default_rr_trace_dir(), timeout=0, extras=false)
+                   trace_dir=default_rr_trace_dir(), timeout=0, chaos=false, extras=false)
     check_rr_available()
     check_perf_event_paranoid(; rr_flags=rr_flags)
 
@@ -158,6 +158,10 @@ function rr_record(julia_cmd::Cmd, julia_args...; rr_flags=default_rr_record_fla
     # loading GDB_jll sets PYTHONHOME through Python_jll. this only matters for replay,
     # and shouldn't leak into the record environment (where we may load another Python)
     delete!(new_env, "PYTHONHOME")
+
+    if chaos
+        rr_flags = `--chaos $rr_flags`
+    end
 
     proc = rr() do rr_path
         rr_cmd = `$(rr_path) record $rr_flags $julia_cmd $julia_args`
@@ -293,17 +297,16 @@ function get_sourcecode(commit)
     return dir
 end
 
-function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``,
-                rr_replay_flags=``)
+function get_trace_dir(trace_url)
     # download remote traces
     if startswith(trace_url, "s3://")
         trace_url = string("https://s3.amazonaws.com/julialang-dumps/", trace_url[6:end])
     end
     if startswith(trace_url, "http://") || startswith(trace_url, "https://")
         trace_url = download_rr_trace(trace_url)
-        rr_replay_flags = `$rr_replay_flags --serve-files`
-        # for remote traces, we assume it originated on a different system, so we need to
-        # tell rr to serve files as it's unlikely they will be available locally.
+        remote = true
+    else
+        remote = false
     end
 
     # If it's a file, try to decompress it
@@ -315,7 +318,24 @@ function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``,
     if !isdir(trace_url)
         error("Invalid trace location: $(trace_url)")
     end
-    trace_dir = find_latest_trace(trace_url)
+
+    (; dir=find_latest_trace(trace_url), remote=remote)
+end
+
+function read_trace_info(trace_url=default_rr_trace_dir();)
+    trace_dir, _ = get_trace_dir(trace_url)
+    json = read(`$(rr()) traceinfo $trace_dir`, String)
+    JSON.parse(json)
+end
+
+function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``,
+                rr_replay_flags=``)
+    trace_dir, remote = get_trace_dir(trace_url)
+    if remote
+        rr_replay_flags = `$rr_replay_flags --serve-files`
+        # for remote traces, we assume it originated on a different system, so we need to
+        # tell rr to serve files as it's unlikely they will be available locally.
+    end
 
     # read Julia-specific metadata from the trace
     if ispath(joinpath(trace_dir, "julia_metadata.json"))
@@ -483,12 +503,17 @@ function make_interactive_report(report_arg, ARGS=[])
     # split the report specification into the type and any modifiers
     report_type, report_modifiers... = split(report_arg, ',')
     timeout = 0
+    chaos = false
     for report_modifier in report_modifiers
-        option, value = split(report_modifier, '=')
+        option, values... = split(report_modifier, '=')
         if option == "timeout"
-            timeout = parse_time(value)
+            length(values) == 1 || error("Invalid report option: $(report_modifier)")
+            timeout = parse_time(values[1])
+        elseif option == "chaos"
+            length(values) == 0 || error("Invalid report option: $(report_modifier)")
+            chaos = true
         else
-            error("Unknown report option: $(option)")
+            error("Unknown report option: $(report_modifier)")
         end
     end
 
@@ -508,11 +533,11 @@ function make_interactive_report(report_arg, ARGS=[])
     cmd = `$cmd --history-file=no`
 
     if report_type == "rr-local"
-        proc = rr_record(cmd, ARGS...; timeout=timeout, extras=true)
+        proc = rr_record(cmd, ARGS...; timeout=timeout, chaos=chaos, extras=true)
         handle_child_error(proc)
     elseif report_type == "rr"
         mktempdir() do trace_dir
-            proc = rr_record(cmd, ARGS...; trace_dir=trace_dir, timeout=timeout, extras=true)
+            proc = rr_record(cmd, ARGS...; trace_dir=trace_dir, timeout=timeout, chaos=chaos, extras=true)
             "Preparing trace for upload (if your trace is large this may take a few minutes)..."
             rr_pack(trace_dir)
             params = get_upload_params()

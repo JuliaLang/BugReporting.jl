@@ -227,4 +227,19 @@ end
         @test success(proc)
         @test contains(output.stdout, "Starting sleep")
     end
+
+    # Test that we can enable chaos mode
+    mktempdir() do temp_trace_dir
+        proc, output = withenv("_RR_TRACE_DIR" => temp_trace_dir) do
+            cmd = ```$(Base.julia_cmd()) --project=$(dirname(@__DIR__))
+                                         --bug-report=rr-local,chaos
+                                         --eval "42"```
+            communicate(cmd)
+        end
+        success(proc) || println(output.stderr)
+        @test success(proc)
+
+        trace_info = BugReporting.read_trace_info(temp_trace_dir)
+        @test get(trace_info, "chaosMode", missing) == true
+    end
 end
