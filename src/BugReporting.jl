@@ -422,10 +422,16 @@ function handle_child_error(p::Base.Process)
 
         # If the child instead signalled, we recreate the same signal in ourselves
         # by first disabling Julia's signal handling and then killing ourselves.
-        ccall(:sigaction, Cint, (Cint, Ptr{Cvoid}, Ptr{Cvoid}), p.termsignal, C_NULL, C_NULL)
-        ccall(:kill, Cint, (Cint, Cint), getpid(), p.termsignal)
-        # XXX: why doesn't raise() work?
-        #ccall(:raise, Cint, (Cint,), p.termsignal)
+        # NOTE: signal is deprecated in favor of sigaction,
+        #       but the sigaction struct is nontrivial and platform-dependent.
+        ccall(:signal, Ptr{Cvoid}, (Cint, Ptr{Cvoid}), p.termsignal, C_NULL)
+        if VERSION < v"1.9-"
+            ccall(:raise, Cint, (Cint,), p.termsignal)
+        else
+            # XXX: why is this required on 1.9?
+            # XXX: raise also seems to be broken when using sigaction
+            ccall(:kill, Cint, (Cint, Cint), getpid(), p.termsignal)
+        end
     end
 end
 
