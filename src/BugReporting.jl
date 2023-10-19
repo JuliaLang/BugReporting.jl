@@ -319,6 +319,22 @@ function read_trace_info(trace_url=default_rr_trace_dir();)
     JSON.parse(json)
 end
 
+function rr_with_gdb_env(; pathsep=':')
+    path = String[]
+    libpath = String[]
+    if rr_jll.is_available()
+        union!(path, rr_jll.PATH_list)
+        union!(libpath, rr_jll.LIBPATH_list)
+    end
+    if GDB_jll.is_available()
+        union!(path, GDB_jll.PATH_list)
+        union!(libpath, GDB_jll.LIBPATH_list)
+    end
+    union!(path, split(get(ENV, "PATH", ""), pathsep))
+    union!(libpath, split(get(ENV, "LD_LIBRARY_PATH", ""), pathsep))
+    return addenv(rr(), "PATH" => join(path, pathsep), "LD_LIBRARY_PATH" => join(libpath, pathsep))
+end
+
 function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``,
                 rr_replay_flags=``)
     trace_dir, remote = get_trace_dir(trace_url)
@@ -384,7 +400,7 @@ function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``,
     end
 
     # replay with rr
-    proc = run(`$(rr()) replay $rr_replay_flags -d $(gdb().exec) $trace_dir -- $gdb_args`)
+    proc = run(`$(rr_with_gdb_env()) replay $rr_replay_flags -d $(gdb().exec) $trace_dir -- $gdb_args`)
 
     # clean-up
     if @isdefined(source_code) && source_code !== nothing
