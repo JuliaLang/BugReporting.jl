@@ -119,12 +119,10 @@ end
 function rr_pack(trace_directory)
     check_rr_available()
 
-    rr() do rr_path
-        for dir in collect_inner_traces(trace_directory)
-            @debug("rr pack'ing $(dir)")
-            output = read(`$rr_path pack $(dir)`, String)
-            isempty(output) || print(output)
-        end
+    for dir in collect_inner_traces(trace_directory)
+        @debug("rr pack'ing $(dir)")
+        output = read(`$(rr()) pack $(dir)`, String)
+        isempty(output) || print(output)
     end
 end
 
@@ -134,9 +132,7 @@ function compress_trace(trace_directory::String, output_file::String)
     rr_pack(trace_directory)
 
     # Start up our `zstdmt` process to write out to that file
-    proc = zstdmt() do zstdp
-        open(pipeline(`$(zstdp) --quiet - -o $(output_file)`, stderr=stderr), "r+")
-    end
+    proc = open(pipeline(`$(zstdmt()) --quiet - -o $(output_file)`, stderr=stderr), "r+")
 
     # Feed the tarball into that waiting process
     Tar.create(trace_directory, proc)
@@ -163,41 +159,38 @@ function rr_record(julia_cmd::Cmd, julia_args...; rr_flags=default_rr_record_fla
         rr_flags = `--chaos $rr_flags`
     end
 
-    proc = rr() do rr_path
-        rr_cmd = `$(rr_path) record $rr_flags $julia_cmd $julia_args`
-        cmd = ignorestatus(setenv(rr_cmd, new_env))
+    rr_cmd = `$(rr()) record $rr_flags $julia_cmd $julia_args`
+    cmd = ignorestatus(setenv(rr_cmd, new_env))
 
-        proc = run(cmd, stdin, stdout, stderr; wait=false)
+    proc = run(cmd, stdin, stdout, stderr; wait=false)
 
-        exit_on_sigint(false)
-        @sync begin
-            t1 = @async while process_running(proc)
-                try
-                    wait(proc)
-                catch err
-                    isa(err, InterruptException) || throw(err)
-                    println("Interrupting the process...")
-                    kill(proc, Base.SIGINT)
-                    Timer(2) do timer
-                        process_running(proc) || return
-                        println("Terminating the process...")
-                        kill(proc, Base.SIGTERM)
-                    end
-                    Timer(5) do timer
-                        process_running(proc) || return
-                        println("Killing the process...")
-                        kill(proc, Base.SIGKILL)
-                    end
+    exit_on_sigint(false)
+    @sync begin
+        t1 = @async while process_running(proc)
+            try
+                wait(proc)
+            catch err
+                isa(err, InterruptException) || throw(err)
+                println("Interrupting the process...")
+                kill(proc, Base.SIGINT)
+                Timer(2) do timer
+                    process_running(proc) || return
+                    println("Terminating the process...")
+                    kill(proc, Base.SIGTERM)
                 end
-            end
-
-            if timeout > 0
-                @async Timer(timeout) do timer
-                    istaskdone(t1) || Base.throwto(t1, InterruptException())
+                Timer(5) do timer
+                    process_running(proc) || return
+                    println("Killing the process...")
+                    kill(proc, Base.SIGKILL)
                 end
             end
         end
-        return proc
+
+        if timeout > 0
+            @async Timer(timeout) do timer
+                istaskdone(t1) || Base.throwto(t1, InterruptException())
+            end
+        end
     end
 
     if extras
@@ -233,9 +226,7 @@ function rr_record(julia_cmd::Cmd, julia_args...; rr_flags=default_rr_record_fla
 end
 
 function decompress_rr_trace(trace_file, out_dir)
-    proc = zstdmt() do zstdp
-        open(`$zstdp --quiet --stdout -d $trace_file`, "r+")
-    end
+    proc = open(`$(zstdmt()) --quiet --stdout -d $trace_file`, "r+")
     Tar.extract(proc, out_dir)
     return nothing
 end
@@ -393,11 +384,7 @@ function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``,
     end
 
     # replay with rr
-    proc = rr() do rr_path
-        gdb() do gdb_path
-            run(`$rr_path replay $rr_replay_flags -d $gdb_path $trace_dir -- $gdb_args`)
-        end
-    end
+    proc = run(`$(rr()) replay $rr_replay_flags -d $(gdb()) $trace_dir -- $gdb_args`)
 
     # clean-up
     if @isdefined(source_code) && source_code !== nothing
@@ -437,9 +424,7 @@ end
 
 function read_comp_dir(binary_path)
     # TODO: use libelf instead of grepping the human-readable output of readelf
-    elf_dump = eu_readelf() do eu_readelf_path
-        read(`$eu_readelf_path --debug-dump=info $binary_path`, String)
-    end
+    elf_dump = read(`$(eu_readelf()) --debug-dump=info $binary_path`, String)
 
     current_comp_dir = nothing
     for line in split(elf_dump, '\n')
@@ -654,9 +639,7 @@ function upload_rr_trace(trace_directory, url; access_key_id, secret_access_key,
         # TODO: stream (peak/s5cmd#182)
         tarball = joinpath(dir, "trace.tar")
         Tar.create(trace_directory, tarball)
-        zstdmt() do zstdp
-            run(`$zstdp --quiet $tarball`)
-        end
+        run(`$(zstdmt()) --quiet $tarball`)
 
         # Upload
         # TODO: progress bar (peak/s5cmd#51)
