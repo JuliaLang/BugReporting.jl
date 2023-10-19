@@ -384,7 +384,7 @@ function replay(trace_url=default_rr_trace_dir(); gdb_commands=[], gdb_flags=``,
     end
 
     # replay with rr
-    proc = run(`$(rr()) replay $rr_replay_flags -d $(gdb()) $trace_dir -- $gdb_args`)
+    proc = run(`$(rr()) replay $rr_replay_flags -d $(gdb().exec) $trace_dir -- $gdb_args`)
 
     # clean-up
     if @isdefined(source_code) && source_code !== nothing
