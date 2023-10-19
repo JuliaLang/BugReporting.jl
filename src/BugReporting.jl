@@ -324,7 +324,9 @@ end
 
 function read_trace_info(trace_url=default_rr_trace_dir();)
     trace_dir, _ = get_trace_dir(trace_url)
-    json = read(`$(rr()) traceinfo $trace_dir`, String)
+    json = rr() do rr_path
+        read(`$rr_path traceinfo $trace_dir`, String)
+    end
     JSON.parse(json)
 end
 
