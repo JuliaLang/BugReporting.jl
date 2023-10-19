@@ -121,7 +121,7 @@ function rr_pack(trace_directory)
 
     for dir in collect_inner_traces(trace_directory)
         @debug("rr pack'ing $(dir)")
-        output = read(`$(rr()) pack $(dir)`, String)
+        output = readchomp(`$(rr()) pack $(dir)`)
         isempty(output) || print(output)
     end
 end
@@ -424,7 +424,7 @@ end
 
 function read_comp_dir(binary_path)
     # TODO: use libelf instead of grepping the human-readable output of readelf
-    elf_dump = read(`$(eu_readelf()) --debug-dump=info $binary_path`, String)
+    elf_dump = readchomp(`$(eu_readelf()) --debug-dump=info $binary_path`)
 
     current_comp_dir = nothing
     for line in split(elf_dump, '\n')
