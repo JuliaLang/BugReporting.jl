@@ -616,9 +616,15 @@ function get_upload_params()
             push!(c, data)
         end
     end
-    errormonitor(t)
     bind(c, t)
-    connectionId = take!(c)
+    connectionId = try
+        take!(c)
+    catch err
+        if !(err isa TaskFailedException)
+            errormonitor(t)
+        end
+        rethrow()
+    end
 
     println("To upload a trace, please authenticate by visiting:\n")
     println("\thttps://github.com/login/oauth/authorize?client_id=$GITHUB_APP_ID&state=$(HTTP.escapeuri(connectionId))")
@@ -632,6 +638,8 @@ function get_upload_params()
             println()
             println("Canceled uploading the trace.")
             return
+        elseif !(err isa TaskFailedException)
+            errormonitor(t)
         end
         rethrow()
     end
