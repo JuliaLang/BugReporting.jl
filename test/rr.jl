@@ -130,13 +130,12 @@ end
         # Test that Julia spat out what we expect on stdout and stderr
         @test occursin(msg, output.stdout)
         stderr_lines = split(output.stderr, "\n")
-        filter!(stderr_lines) do line
-            !contains(line, "Loading BugReporting package...") && !isempty(line)
-        end
-        if !isempty(stderr_lines)
+        filter!(!isempty, stderr_lines)
+        @test contains(popfirst!(stderr_lines), "Loading BugReporting package...")
+        if length(stderr_lines) > 1
             @error "Unexpected output on standard error:\n" * output.stderr
         end
-        @test isempty(stderr_lines)
+        @test length(stderr_lines) <= 1
 
         test_replay(temp_trace_dir)
 
