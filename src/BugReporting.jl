@@ -319,6 +319,7 @@ function read_trace_info(trace_url=default_rr_trace_dir();)
     JSON.parse(json)
 end
 
+# workaround for https://github.com/JuliaLang/julia/issues/39282
 function rr_with_gdb_env(; pathsep=':')
     path = String[]
     libpath = String[]
