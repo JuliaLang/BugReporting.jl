@@ -544,7 +544,7 @@ function make_interactive_report(report_arg, ARGS=[])
     elseif report_type == "rr"
         mktempdir() do trace_dir
             proc = rr_record(cmd, ARGS...; trace_dir=trace_dir, timeout=timeout, chaos=chaos, extras=true)
-            "Preparing trace for upload (if your trace is large this may take a few minutes)..."
+            println("Preparing trace for upload (if your trace is large this may take a few minutes)...")
             rr_pack(trace_dir)
             params = get_upload_params()
             if params !== nothing
@@ -614,6 +614,7 @@ function get_upload_params()
             push!(c, data)
         end
     end
+    errormonitor(t)
     bind(c, t)
     connectionId = take!(c)
 
