@@ -547,16 +547,20 @@ function make_interactive_report(report_arg, ARGS=[])
         mktempdir() do trace_dir
             proc = rr_record(cmd, ARGS...; trace_dir=trace_dir, timeout=timeout, chaos=chaos, extras=true)
             println("Preparing trace for upload (if your trace is large this may take a few minutes)...")
-            rr_pack(trace_dir)
+            tarball = pack_rr_trace(trace_dir)
             params = get_upload_params()
             if params !== nothing
                 path, creds = params
 
                 println("Uploading trace...")
                 withenv("AWS_REGION" => "us-east-1") do
-                    upload_rr_trace(trace_dir, "s3://$TRACE_BUCKET/$path"; creds...)
+                    upload_rr_tarball(tarball, "s3://$TRACE_BUCKET/$path"; creds...)
                 end
                 println("Uploaded to https://$TRACE_BUCKET.s3.amazonaws.com/$path")
+                rm(tarball)
+            else
+                println("""Uploading the trace failed, or was interrupted.
+                           The trace has been saved for manual upload at $tarball""")
             end
             handle_child_error(proc)
         end
@@ -617,13 +621,12 @@ function get_upload_params()
         end
     end
     bind(c, t)
+    errormonitor(t)
     connectionId = try
         take!(c)
     catch err
-        if !(err isa TaskFailedException)
-            errormonitor(t)
-        end
-        rethrow()
+        # the error should have been reported by `errormonitor`
+        return
     end
 
     println("To upload a trace, please authenticate by visiting:\n")
@@ -637,11 +640,8 @@ function get_upload_params()
         if err isa InterruptException
             println()
             println("Canceled uploading the trace.")
-            return
-        elseif !(err isa TaskFailedException)
-            errormonitor(t)
         end
-        rethrow()
+        return
     end
 
     println()
@@ -651,7 +651,7 @@ function get_upload_params()
                                       session_token=s3creds["AWS_SESSION_TOKEN"])
 end
 
-function upload_rr_trace(trace_directory, url; access_key_id, secret_access_key, session_token)
+function pack_rr_trace(trace_directory)
     # Auto-pack this trace directory if it hasn't already been:
     sample_directory = joinpath(trace_directory, "latest-trace")
     if isdir(sample_directory) && uperm(sample_directory) & 0x2 == 0
@@ -660,21 +660,24 @@ function upload_rr_trace(trace_directory, url; access_key_id, secret_access_key,
         rr_pack(trace_directory)
     end
 
-    mktempdir() do dir
-        # Create a compressed tarball
-        # TODO: stream (peak/s5cmd#182)
-        tarball = joinpath(dir, "trace.tar")
-        Tar.create(trace_directory, tarball)
-        run(`$(zstdmt()) --quiet $tarball`)
+    dir = mktempdir()
 
-        # Upload
-        # TODO: progress bar (peak/s5cmd#51)
-        cmd = `$(s5cmd()) --log error cp $(tarball).zst $url`
-        cmd = addenv(cmd, "AWS_ACCESS_KEY_ID" => access_key_id,
-                          "AWS_SECRET_ACCESS_KEY" => secret_access_key,
-                          "AWS_SESSION_TOKEN" => session_token)
-        run(cmd)
-    end
+    # Create a compressed tarball
+    tarball = joinpath(dir, "trace.tar")
+    Tar.create(trace_directory, tarball)
+    run(`$(zstdmt()) --quiet $tarball`)
+
+    return "$(tarball).zst"
+end
+
+function upload_rr_tarball(tarball, url; access_key_id, secret_access_key, session_token)
+    # Upload
+    # TODO: progress bar (peak/s5cmd#51)
+    cmd = `$(s5cmd()) --log error cp $(tarball) $url`
+    cmd = addenv(cmd, "AWS_ACCESS_KEY_ID" => access_key_id,
+                        "AWS_SECRET_ACCESS_KEY" => secret_access_key,
+                        "AWS_SESSION_TOKEN" => session_token)
+    run(cmd)
 end
 
 function __init__()
