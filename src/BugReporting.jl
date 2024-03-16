@@ -574,7 +574,11 @@ include("sync_compat.jl")
 function get_upload_params()
     # big disclaimer
     println()
-    printstyled("### IMPORTANT =============================================================\n", blink = true)
+    if VERSION >= v"1.7"
+        printstyled("### IMPORTANT =============================================================\n", blink = true)
+    else
+        println("### IMPORTANT =============================================================")
+    end
     println("""
         You are about to upload a trace directory to a publicly accessible location.
         Such traces contain any information that was accessed by the traced
@@ -584,7 +588,11 @@ function get_upload_params()
         DO NOT proceed, if you do not wish to make this information publicly available.
         By proceeding you explicitly agree to waive any privacy interest in the
         uploaded information.""")
-    printstyled("### =======================================================================\n", blink = true)
+    if VERSION >= v"1.7"
+        printstyled("### =======================================================================\n", blink = true)
+    else
+        println("### =======================================================================")
+    end
     println()
 
     c = Channel()
