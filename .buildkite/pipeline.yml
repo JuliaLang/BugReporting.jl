@@ -1,56 +1,25 @@
 steps:
-
-  - label: "Julia 1.6"
+  - label: "Julia {{matrix.julia}}"
     plugins:
       - JuliaCI/julia#v1:
-          version: 1.6
+          version: "{{matrix.julia}}"
       - JuliaCI/julia-test#v1: ~
     agents:
       queue: "juliaecosystem"
       os: "linux"
       arch: "x86_64"
     timeout_in_minutes: 15
-
-  - label: "Julia 1.7"
-    plugins:
-      - JuliaCI/julia#v1:
-          version: 1.7
-      - JuliaCI/julia-test#v1: ~
-    agents:
-      queue: "juliaecosystem"
-      os: "linux"
-      arch: "x86_64"
-    timeout_in_minutes: 15
-
-  - label: "Julia 1.8"
-    plugins:
-      - JuliaCI/julia#v1:
-          version: 1.8
-      - JuliaCI/julia-test#v1: ~
-    agents:
-      queue: "juliaecosystem"
-      os: "linux"
-      arch: "x86_64"
-    timeout_in_minutes: 15
-
-  - label: "Julia 1.9"
-    plugins:
-      - JuliaCI/julia#v1:
-          version: 1.9
-      - JuliaCI/julia-test#v1: ~
-    agents:
-      queue: "juliaecosystem"
-      os: "linux"
-      arch: "x86_64"
-    timeout_in_minutes: 15
-
-  - label: "Julia nightly"
-    plugins:
-      - JuliaCI/julia#v1:
-          version: nightly
-      - JuliaCI/julia-test#v1: ~
-    agents:
-      queue: "juliaecosystem"
-      os: "linux"
-      arch: "x86_64"
-    timeout_in_minutes: 15
+    matrix:
+      setup:
+        julia:
+          - "1.6"
+          - "1.7"
+          - "1.8"
+          - "1.9"
+          - "1.10"
+          - "1.11"
+          - "nightly"
+      adjustments:
+        - with:
+            julia: "nightly"
+          soft_fail: true
