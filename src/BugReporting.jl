@@ -569,8 +569,6 @@ function make_interactive_report(report_arg, ARGS=[])
     end
 end
 
-include("sync_compat.jl")
-
 function get_upload_params()
     # big disclaimer
     println()
@@ -629,7 +627,9 @@ function get_upload_params()
         end
     end
     bind(c, t)
-    errormonitor(t)
+    if VERSION >= v"1.7"
+        errormonitor(t)
+    end
     connectionId = try
         take!(c)
     catch err
@@ -682,9 +682,9 @@ function upload_rr_tarball(tarball, url; access_key_id, secret_access_key, sessi
     # Upload
     # TODO: progress bar (peak/s5cmd#51)
     cmd = `$(s5cmd()) --log error cp $(tarball) $url`
-    cmd = addenv(cmd, "AWS_ACCESS_KEY_ID" => access_key_id,
-                        "AWS_SECRET_ACCESS_KEY" => secret_access_key,
-                        "AWS_SESSION_TOKEN" => session_token)
+    cmd = addenv(cmd, "AWS_ACCESS_KEY_ID"       => access_key_id,
+                      "AWS_SECRET_ACCESS_KEY"   => secret_access_key,
+                      "AWS_SESSION_TOKEN"       => session_token)
     run(cmd)
 end
 
