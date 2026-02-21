@@ -1,5 +1,7 @@
 module BugReporting
 
+# Hello world
+
 using Scratch
 
 # Use README as the docstring of the module:
